@@ -1,9 +1,234 @@
-//! Dependency names added by a hunk of a manifest (package.json, pyproject.toml, requirements*.txt).
+//! Dependency names added by a change to a manifest (package.json, pyproject.toml, Pipfile,
+//! requirements*.txt).
 //!
-//! A hunk only carries three lines of context, so the enclosing section is tracked from the lines
-//! the hunk shows and, when its header is out of view, inferred from the shape of the line.
+//! `scan` parses the manifest before and after the change and diffs the dependency sets, which is
+//! exact. `added` is the fallback for a manifest that cannot be parsed: a hunk only carries three
+//! lines of context, so the enclosing section is tracked from the lines the hunk shows and, when
+//! its header is out of view, inferred from the shape of the line.
 
-use crate::model::{Line, LineKind};
+use std::collections::{BTreeMap, HashMap};
+
+use anyhow::{Context, Result, anyhow};
+
+use crate::config::Config;
+use crate::git::Repo;
+use crate::model::{FileDiff, FileStatus, Hunk, HunkId, Line, LineKind};
+
+/// Result of reading one manifest.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Scan {
+    /// Names added by the change, assigned to the hunk that shows them.
+    Parsed(HashMap<HunkId, Vec<String>>),
+    /// A blob could not be read or parsed; callers fall back to the line heuristic.
+    Unparsed,
+}
+
+/// Manifest path (as in `Hunk::path`) -> scan result.
+pub type Scans = HashMap<String, Scan>;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    PackageJson,
+    Pyproject,
+    Pipfile,
+    Requirements,
+}
+
+fn kind_of(path: &str) -> Option<Kind> {
+    let base = path.rsplit('/').next().unwrap_or(path).to_lowercase();
+    match base.as_str() {
+        "package.json" => Some(Kind::PackageJson),
+        "pyproject.toml" => Some(Kind::Pyproject),
+        "pipfile" => Some(Kind::Pipfile),
+        _ if is_requirements(path) => Some(Kind::Requirements),
+        _ => None,
+    }
+}
+
+/// Parse every changed manifest at `merge_base` and `head` and attach each added dependency name
+/// to the hunk whose added lines mention it (else the file's first hunk).
+pub fn scan(
+    repo: &Repo,
+    merge_base: &str,
+    head: &str,
+    files: &[FileDiff],
+    hunks: &[Hunk],
+    cfg: &Config,
+) -> Result<Scans> {
+    let manifests: Vec<(&FileDiff, Kind)> = files
+        .iter()
+        .filter(|f| !f.generated && f.status != FileStatus::Deleted)
+        .filter_map(|f| Some((f, kind_of(f.new_path.as_deref()?)?)))
+        .collect();
+    let paths = |side: fn(&FileDiff) -> Option<&str>| -> Vec<String> {
+        manifests
+            .iter()
+            .filter_map(|(f, _)| side(f).map(str::to_string))
+            .collect()
+    };
+    let new_blobs: HashMap<_, _> = repo
+        .read_blobs(head, &paths(|f| f.new_path.as_deref()))?
+        .into_iter()
+        .collect();
+    let old_blobs: HashMap<_, _> = repo
+        .read_blobs(merge_base, &paths(|f| f.old_path.as_deref()))?
+        .into_iter()
+        .collect();
+    let mut out = Scans::new();
+    for (f, kind) in manifests {
+        let path = f.path();
+        let blob =
+            |m: &HashMap<String, Option<String>>, p: &Option<String>| -> Option<Option<String>> {
+                match p {
+                    None => Some(None),
+                    Some(p) => m.get(p).cloned().flatten().map(Some),
+                }
+            };
+        let (Some(new), Some(old)) = (blob(&new_blobs, &f.new_path), blob(&old_blobs, &f.old_path))
+        else {
+            out.insert(path.to_string(), Scan::Unparsed);
+            continue;
+        };
+        let sections = &cfg.patterns.dependency_sections;
+        let names = |text: Option<String>| match text {
+            None => Ok(BTreeMap::new()),
+            Some(t) => parse(kind, &t, sections),
+        };
+        let scan = match (names(old), names(new)) {
+            (Ok(old), Ok(new)) => {
+                let added: Vec<String> = new
+                    .into_iter()
+                    .filter(|(k, _)| !old.contains_key(k))
+                    .map(|(_, shown)| shown)
+                    .collect();
+                Scan::Parsed(assign(path, &added, hunks))
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                eprintln!("warning: parsing {path}: {e:#}; using line heuristic");
+                Scan::Unparsed
+            }
+        };
+        out.insert(path.to_string(), scan);
+    }
+    Ok(out)
+}
+
+/// Each name goes to the first hunk of `path` whose added lines mention it, else the first hunk.
+fn assign(path: &str, names: &[String], hunks: &[Hunk]) -> HashMap<HunkId, Vec<String>> {
+    let in_file: Vec<&Hunk> = hunks.iter().filter(|h| h.path == path).collect();
+    let mut out: HashMap<HunkId, Vec<String>> = HashMap::new();
+    for name in names {
+        let mentions = |h: &&&Hunk| {
+            h.lines
+                .iter()
+                .any(|l| l.kind == LineKind::Added && l.text.contains(name.as_str()))
+        };
+        if let Some(h) = in_file.iter().find(mentions).or(in_file.first()) {
+            out.entry(h.id.clone()).or_default().push(name.clone());
+        }
+    }
+    out
+}
+
+/// Normalized name -> name as written.
+type Names = BTreeMap<String, String>;
+
+fn parse(kind: Kind, text: &str, sections: &[String]) -> Result<Names> {
+    let raw = match kind {
+        Kind::PackageJson => package_json_names(text, sections)?,
+        Kind::Pyproject => pyproject_names(text)?,
+        Kind::Pipfile => pipfile_names(text)?,
+        Kind::Requirements => requirements_names(text),
+    };
+    let npm = kind == Kind::PackageJson;
+    Ok(raw
+        .into_iter()
+        .map(|n| (if npm { n.clone() } else { normalize_py(&n) }, n))
+        .collect())
+}
+
+/// PEP 503: case-insensitive, runs of `-_.` equal.
+fn normalize_py(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.to_lowercase().chars() {
+        let c = if "-_.".contains(c) { '-' } else { c };
+        if c != '-' || !out.ends_with('-') {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn package_json_names(text: &str, sections: &[String]) -> Result<Vec<String>> {
+    let v: serde_json::Value = serde_json::from_str(text).context("invalid JSON")?;
+    let obj = v.as_object().ok_or_else(|| anyhow!("not a JSON object"))?;
+    Ok(sections
+        .iter()
+        .filter_map(|s| obj.get(s)?.as_object())
+        .flat_map(|m| m.keys().cloned())
+        .collect())
+}
+
+fn requirements_names(text: &str) -> Vec<String> {
+    text.lines()
+        .map(|l| l.split(" #").next().unwrap_or(l).trim())
+        .filter(|t| !t.is_empty() && !t.starts_with('#') && !t.starts_with('-'))
+        .map(|t| req_name(t).map_or_else(|| t.to_string(), |(n, _)| n))
+        .collect()
+}
+
+/// PEP 508 strings of a TOML array; non-string entries (`{include-group = ...}`) are skipped.
+fn req_strings(v: Option<&toml::Value>) -> Vec<String> {
+    v.and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| req_name(e.as_str()?).map(|(n, _)| n))
+        .collect()
+}
+
+fn keys(v: Option<&toml::Value>) -> Vec<String> {
+    v.and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(|t| t.keys().cloned())
+        .collect()
+}
+
+fn pyproject_names(text: &str) -> Result<Vec<String>> {
+    let doc: toml::Table = toml::from_str(text).context("invalid TOML")?;
+    let mut out = Vec::new();
+    let project = doc.get("project");
+    out.extend(req_strings(project.and_then(|p| p.get("dependencies"))));
+    let groups = |v: Option<&toml::Value>| -> Vec<String> {
+        v.and_then(toml::Value::as_table)
+            .into_iter()
+            .flat_map(|t| t.values())
+            .flat_map(|g| req_strings(Some(g)))
+            .collect()
+    };
+    out.extend(groups(project.and_then(|p| p.get("optional-dependencies"))));
+    out.extend(groups(doc.get("dependency-groups")));
+    let poetry = doc.get("tool").and_then(|t| t.get("poetry"));
+    let poetry_keys = |v: Option<&toml::Value>| keys(v).into_iter().filter(|k| k != "python");
+    out.extend(poetry_keys(poetry.and_then(|p| p.get("dependencies"))));
+    out.extend(poetry_keys(poetry.and_then(|p| p.get("dev-dependencies"))));
+    for g in poetry
+        .and_then(|p| p.get("group"))
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(|t| t.values())
+    {
+        out.extend(poetry_keys(g.get("dependencies")));
+    }
+    Ok(out)
+}
+
+fn pipfile_names(text: &str) -> Result<Vec<String>> {
+    let doc: toml::Table = toml::from_str(text).context("invalid TOML")?;
+    Ok(["packages", "dev-packages"]
+        .iter()
+        .flat_map(|s| keys(doc.get(*s)))
+        .collect())
+}
 
 /// Names newly added by `lines`; a name that is also removed (a version bump) is not new.
 pub fn added(path: &str, lines: &[Line], sections: &[String]) -> Vec<String> {

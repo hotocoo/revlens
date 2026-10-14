@@ -38,13 +38,16 @@ export function Criteria({ analysis, session, derived, selected, onSelect, gener
                 class="crit-text"
                 aria-pressed={on}
                 onClick={() => onSelect(on ? null : c.id)}
-                title="Select to map hunks to this criterion"
               >
                 <span class="mono id">{c.id}</span> {c.text}
               </button>
               <div class="crit-meta">
                 <span class="muted">{mapped} hunk{mapped === 1 ? "" : "s"}</span>
                 {missing && <span class="badge warn">Missing work</span>}
+                <span class="spacer" />
+                <button type="button" class={on ? "on" : ""} aria-pressed={on} onClick={() => onSelect(on ? null : c.id)}>
+                  {on ? "Mapping hunks" : "Map hunks"}
+                </button>
               </div>
               <div class="seg" role="group" aria-label={`Status of ${c.id}`}>
                 {STATUSES.map(([v, label]) => (

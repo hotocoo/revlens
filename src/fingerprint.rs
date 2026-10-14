@@ -242,9 +242,9 @@ fn best_match(
     best
 }
 
-/// Hunks where at least `min_pct`% of changed lines sit in blocks of `min_block`+ lines that
-/// reappear (opposite kind) in a different hunk. Returns the first counterpart per hunk.
-pub fn moved_blocks(hunks: &[Hunk], min_block: usize, min_pct: u32) -> Vec<(HunkId, Loc)> {
+/// Hunks whose changed lines ALL sit in blocks of `min_block`+ lines that reappear (opposite
+/// kind) in a different hunk; a hunk with any unmatched (edited) line is never reported. Returns the first counterpart per hunk.
+pub fn moved_blocks(hunks: &[Hunk], min_block: usize) -> Vec<(HunkId, Loc)> {
     let all: Vec<Vec<Run>> = hunks.iter().map(runs).collect();
     let mut idx: Index = HashMap::new();
     for (hi, rs) in all.iter().enumerate() {
@@ -272,7 +272,7 @@ pub fn moved_blocks(hunks: &[Hunk], min_block: usize, min_pct: u32) -> Vec<(Hunk
             }
         }
         if let Some((oh, line)) = first
-            && moved * 100 >= total * min_pct as usize
+            && moved == total
         {
             out.push((
                 hunks[hi].id.clone(),
@@ -428,7 +428,7 @@ mod tests {
             5,
             &[(C, "ctx"), (A, "one();"), (A, "two();"), (A, "three();")],
         );
-        let got = moved_blocks(&[h1, h2], 3, 90);
+        let got = moved_blocks(&[h1, h2], 3);
         assert_eq!(
             got,
             vec![
@@ -454,7 +454,7 @@ mod tests {
     fn short_blocks_partial_and_same_hunk_not_moved() {
         let h1 = hunk("h1", "a", 1, 1, &[(R, "x"), (R, "y")]);
         let h2 = hunk("h2", "b", 1, 1, &[(A, "x"), (A, "y")]);
-        assert!(moved_blocks(&[h1, h2], 3, 90).is_empty());
+        assert!(moved_blocks(&[h1, h2], 3).is_empty());
         // same hunk replaced in place
         let h = hunk(
             "h",
@@ -463,7 +463,7 @@ mod tests {
             1,
             &[(R, "p"), (R, "q"), (R, "r"), (A, "p"), (A, "q"), (A, "r")],
         );
-        assert!(moved_blocks(&[h], 3, 50).is_empty());
+        assert!(moved_blocks(&[h], 3).is_empty());
         // below pct
         let h1 = hunk(
             "h1",
@@ -481,8 +481,21 @@ mod tests {
             ],
         );
         let h2 = hunk("h2", "b", 1, 1, &[(A, "p"), (A, "q"), (A, "r")]);
-        let got = moved_blocks(&[h1, h2], 3, 90);
+        let got = moved_blocks(&[h1, h2], 3);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].0, "h2");
+    }
+
+    #[test]
+    fn hunk_with_edited_lines_is_not_moved() {
+        let texts: Vec<String> = (0..10).map(|i| format!("x{i}();")).collect();
+        let lines = |k| texts.iter().map(|t| (k, t.as_str())).collect::<Vec<_>>();
+        let h1 = hunk("h1", "a", 1, 1, &lines(R));
+        let mut added = lines(A);
+        added.push((A, "eval(x);"));
+        let h2 = hunk("h2", "b", 1, 1, &added);
+        let got = moved_blocks(&[h1, h2], 3);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "h1");
     }
 }

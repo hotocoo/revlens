@@ -233,3 +233,229 @@ fn unparseable_file_does_not_abort() {
     );
     assert_eq!(a.hunks.len(), 1);
 }
+
+fn dep_reason(a: &revlens::model::Analysis, path: &str) -> Option<String> {
+    in_file(a, path)
+        .iter()
+        .flat_map(|h| h.signals.iter())
+        .find(|s| s.rule == Rule::NewDependency)
+        .map(|s| s.reason.clone())
+}
+
+#[test]
+fn new_package_json_with_inline_dependencies() {
+    let a = run(
+        &[("a.txt", "x\n")],
+        &[(
+            "package.json",
+            "{\"name\":\"x\",\"dependencies\": { \"axios\": \"1.7.0\" }}\n",
+        )],
+    );
+    let r = dep_reason(&a, "package.json").expect("NewDependency");
+    assert!(r.contains("'axios'") && !r.contains("heuristic"), "{r}");
+}
+
+#[test]
+fn package_json_every_section_and_only_additions() {
+    let base =
+        "{\n  \"scripts\": {\"t\": \"jest\"},\n  \"dependencies\": {\"zod\": \"^3.0.0\"}\n}\n";
+    let head = "{\n  \"scripts\": {\"t\": \"jest\", \"lint\": \"eslint\"},\n  \"dependencies\": {\"zod\": \"^3.1.0\"},\n  \"devDependencies\": {\"vitest\": \"1\"},\n  \"peerDependencies\": {\"react\": \"18\"},\n  \"optionalDependencies\": {\"fsevents\": \"2\"}\n}\n";
+    let a = run(&[("package.json", base)], &[("package.json", head)]);
+    let r = dep_reason(&a, "package.json").expect("NewDependency");
+    for n in ["vitest", "react", "fsevents"] {
+        assert!(r.contains(n), "{r}");
+    }
+    assert!(!r.contains("zod") && !r.contains("lint"), "{r}");
+
+    let bump = head.replace("\"^3.1.0\"", "\"^3.2.0\"");
+    let a = run(&[("package.json", head)], &[("package.json", &bump)]);
+    assert!(dep_reason(&a, "package.json").is_none());
+}
+
+#[test]
+fn dependency_moved_between_sections_is_not_new() {
+    let base = "{\"dependencies\": {\"zod\": \"1\"}}\n";
+    let head = "{\"devDependencies\": {\"zod\": \"1\"}}\n";
+    let a = run(&[("package.json", base)], &[("package.json", head)]);
+    assert!(dep_reason(&a, "package.json").is_none());
+}
+
+#[test]
+fn new_pyproject_all_dependency_tables() {
+    let toml = r#"[project]
+name = "x"
+license = "MIT"
+dependencies = ["httpx>=0.27", "Rich_Text[extra] ; python_version > '3'"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[dependency-groups]
+lint = ["ruff", {include-group = "dev"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2"
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "^1"
+"#;
+    let a = run(&[("a.txt", "x\n")], &[("pyproject.toml", toml)]);
+    let r = dep_reason(&a, "pyproject.toml").expect("NewDependency");
+    for n in ["httpx", "Rich_Text", "pytest", "ruff", "requests", "mkdocs"] {
+        assert!(r.contains(&format!("'{n}'")), "{n} in {r}");
+    }
+    assert!(!r.contains("python") && !r.contains("MIT"), "{r}");
+}
+
+#[test]
+fn pyproject_name_normalization_is_not_an_addition() {
+    let base = "[project]\ndependencies = [\"Typing_Extensions>=4\"]\n";
+    let head = "[project]\ndependencies = [\"typing-extensions>=4.1\"]\n";
+    let a = run(&[("pyproject.toml", base)], &[("pyproject.toml", head)]);
+    assert!(dep_reason(&a, "pyproject.toml").is_none());
+}
+
+#[test]
+fn new_requirements_files_and_pipfile() {
+    let a = run(
+        &[("a.txt", "x\n")],
+        &[
+            (
+                "requirements/dev.txt",
+                "# tools\n-r base.txt\n\npytest>=8  # test runner\nblack[jupyter]==24\n",
+            ),
+            (
+                "Pipfile",
+                "[packages]\nflask = \"*\"\n[dev-packages]\npytest = \"*\"\n",
+            ),
+        ],
+    );
+    let r = dep_reason(&a, "requirements/dev.txt").expect("requirements");
+    assert!(r.contains("'pytest'") && r.contains("'black'"), "{r}");
+    assert!(!r.contains("base.txt"), "{r}");
+    let r = dep_reason(&a, "Pipfile").expect("Pipfile");
+    assert!(r.contains("'flask'") && r.contains("'pytest'"), "{r}");
+}
+
+#[test]
+fn signal_lands_on_the_hunk_that_mentions_the_name() {
+    let filler: String = (0..30).map(|i| format!("  \"k{i}\": \"v\",\n")).collect();
+    let base = format!("{{\n  \"a\": 1,\n{filler}  \"dependencies\": {{}}\n}}\n");
+    let head = format!("{{\n  \"a\": 2,\n{filler}  \"dependencies\": {{\"axios\": \"1\"}}\n}}\n");
+    let a = run(&[("package.json", &base)], &[("package.json", &head)]);
+    let hs = in_file(&a, "package.json");
+    assert_eq!(hs.len(), 2, "{hs:?}");
+    let flagged: Vec<_> = hs.iter().filter(|h| has(h, &Rule::NewDependency)).collect();
+    assert_eq!(flagged.len(), 1);
+    assert!(flagged[0].lines.iter().any(|l| l.text.contains("axios")));
+}
+
+#[test]
+fn unparseable_manifest_falls_back_to_line_heuristic() {
+    let base = "{\n  \"dependencies\": {\n    \"zod\": \"1\"\n  }\n}\n";
+    let head = "{\n  \"dependencies\": {\n    \"zod\": \"1\",\n    \"axios\": \"1\",\n  }\n}\n";
+    let a = run(&[("package.json", base)], &[("package.json", head)]);
+    let r = dep_reason(&a, "package.json").expect("NewDependency");
+    assert!(r.contains("'axios'") && r.contains("line heuristic"), "{r}");
+}
+
+const PY_PARSE: &str = "def parse_rows(rows):\n    out = []\n    for row in rows:\n        if row.get('ok'):\n            out.append(row['value'] * 2)\n        else:\n            out.append(0)\n    return out\n";
+/// Same structure as `PY_PARSE`: renamed identifiers, different literals.
+const PY_PARSE_COPY: &str = "def read_items(items):\n    res = []\n    for it in items:\n        if it.get('good'):\n            res.append(it['n'] * 3)\n        else:\n            res.append(1)\n    return res\n";
+
+fn reuse_signal(a: &revlens::model::Analysis, path: &str) -> Option<(Rule, String)> {
+    in_file(a, path)
+        .iter()
+        .flat_map(|h| h.signals.iter())
+        .find(|s| matches!(s.rule, Rule::ReuseMiss { .. }))
+        .map(|s| (s.rule.clone(), s.reason.clone()))
+}
+
+#[test]
+fn added_function_duplicating_existing_one_is_a_reuse_miss() {
+    let a = run(
+        &[("lib/parse.py", PY_PARSE)],
+        &[("lib/parse.py", PY_PARSE), ("lib/new.py", PY_PARSE_COPY)],
+    );
+    let (rule, reason) = reuse_signal(&a, "lib/new.py").expect("ReuseMiss");
+    assert_eq!(
+        reason,
+        "new 'read_items' duplicates existing 'parse_rows' at lib/parse.py:1"
+    );
+    let Rule::ReuseMiss { existing } = rule else {
+        unreachable!()
+    };
+    assert_eq!((existing.path.as_str(), existing.line), ("lib/parse.py", 1));
+    assert!(reuse_signal(&a, "lib/parse.py").is_none());
+    let h = &in_file(&a, "lib/new.py")[0];
+    assert!(h.score >= revlens::config::Config::default().weights.reuse_miss);
+}
+
+#[test]
+fn reuse_miss_detects_typescript_duplicates() {
+    let ts = |name: &str, v: &str| {
+        format!(
+            "export function {name}({v}s: number[]): number {{\n  let t = 0;\n  for (const x of {v}s) {{\n    if (x > 0) {{\n      t += x * 2;\n    }} else {{\n      t -= 1;\n    }}\n  }}\n  return t;\n}}\n"
+        )
+    };
+    let a = run(
+        &[("a.ts", &ts("total", "n"))],
+        &[("a.ts", &ts("total", "n")), ("b.ts", &ts("sumAll", "q"))],
+    );
+    let (_, reason) = reuse_signal(&a, "b.ts").expect("ReuseMiss");
+    assert!(
+        reason.contains("'sumAll' duplicates existing 'total' at a.ts:1"),
+        "{reason}"
+    );
+}
+
+#[test]
+fn reuse_miss_ignores_moved_removed_edited_and_small_functions() {
+    // Moved: not an addition.
+    let a = run(&[("a.py", PY_PARSE)], &[("b.py", PY_PARSE)]);
+    assert!(reuse_signal(&a, "b.py").is_none());
+    // The original is deleted in the same PR: a rewrite, not a duplicate.
+    let a = run(
+        &[("a.py", PY_PARSE), ("k.py", "KEEP = 1\n")],
+        &[("b.py", PY_PARSE_COPY), ("k.py", "KEEP = 1\n")],
+    );
+    assert!(reuse_signal(&a, "b.py").is_none());
+    // The original is edited in the same PR.
+    let edited = PY_PARSE.replace("* 2", "* 5");
+    let a = run(
+        &[("a.py", PY_PARSE)],
+        &[("a.py", &edited), ("b.py", PY_PARSE_COPY)],
+    );
+    assert!(reuse_signal(&a, "b.py").is_none());
+    // Too small to be interesting.
+    let tiny = "def f(a):\n    return a + 1\n";
+    let a = run(
+        &[("a.py", tiny)],
+        &[("a.py", tiny), ("b.py", "def g(b):\n    return b + 2\n")],
+    );
+    assert!(reuse_signal(&a, "b.py").is_none());
+}
+
+#[test]
+fn reuse_scan_can_be_disabled_and_skips_minified_files() {
+    let fx = common::fixture(
+        &[("a.py", PY_PARSE)],
+        &[("a.py", PY_PARSE), ("b.py", PY_PARSE_COPY)],
+    )
+    .expect("fixture");
+    let mut cfg = revlens::config::Config::default();
+    cfg.limits.reuse_enabled = false;
+    let a = common::analyze_with(&fx, &cfg).expect("analyze");
+    assert!(reuse_signal(&a, "b.py").is_none());
+
+    cfg.limits.reuse_enabled = true;
+    cfg.limits.reuse_max_file_bytes = 10;
+    let a = common::analyze_with(&fx, &cfg).expect("analyze");
+    assert!(reuse_signal(&a, "b.py").is_none());
+
+    cfg.limits.reuse_max_file_bytes = 500_000;
+    cfg.limits.minified_avg_line = 5;
+    let a = common::analyze_with(&fx, &cfg).expect("analyze");
+    assert!(reuse_signal(&a, "b.py").is_none());
+}

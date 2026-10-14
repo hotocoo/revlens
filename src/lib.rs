@@ -13,6 +13,7 @@ pub mod lang;
 pub mod live;
 pub mod model;
 pub mod patch;
+pub mod reuse;
 pub mod risk;
 pub mod server;
 pub mod session_cli;

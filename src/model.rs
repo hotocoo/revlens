@@ -255,6 +255,16 @@ pub struct HunkRef {
 }
 
 impl Hunk {
+    /// "moved from X" for a hunk that adds the code, "moved to X" for one that only removes it.
+    pub fn move_label(&self, other: &Loc) -> String {
+        let removed_first = self
+            .changed()
+            .first()
+            .is_some_and(|(k, _, _)| *k == LineKind::Removed);
+        let dir = if removed_first { "to" } else { "from" };
+        format!("moved {dir} {}:{}", other.path, other.line)
+    }
+
     /// Added and removed lines with their line number (new side for added, old side for removed).
     pub fn changed(&self) -> Vec<(LineKind, u32, &str)> {
         let (mut old, mut new) = (self.old_start, self.new_start);

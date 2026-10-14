@@ -62,7 +62,13 @@ fn scored(h: Hunk, f: FileDiff, syms: &[SymbolChange], extra: &[FileDiff]) -> Hu
     let mut files = vec![f];
     files.extend_from_slice(extra);
     let mut hs = [h];
-    score(&files, &mut hs, syms, &Config::default());
+    score(
+        &files,
+        &mut hs,
+        syms,
+        &Findings::default(),
+        &Config::default(),
+    );
     let [h] = hs;
     h
 }
@@ -403,8 +409,8 @@ fn score_is_sum_and_rescoring_is_idempotent() {
     let mut hs = [hunk(".github/workflows/ci.yml", &["+a"])];
     let files = [doc(".github/workflows/ci.yml")];
     let cfg = Config::default();
-    score(&files, &mut hs, &[], &cfg);
-    score(&files, &mut hs, &[], &cfg);
+    score(&files, &mut hs, &[], &Findings::default(), &cfg);
+    score(&files, &mut hs, &[], &Findings::default(), &cfg);
     assert_eq!(hs[0].score, cfg.weights.infra_config);
     assert_eq!(hs[0].signals.len(), 1);
 }
@@ -480,4 +486,69 @@ fn new_dependency_in_requirements_variants() {
         );
         assert!(rules(&h).contains(&Rule::NewDependency), "{p}");
     }
+}
+
+#[test]
+fn suppression_and_sensitive_fire_on_net_additions_only() {
+    // Re-indented line keeps its existing markers: nothing was added.
+    let h = scored(
+        hunk(
+            "src/a.py",
+            &[
+                "-x = f(y)  # noqa: F821  token",
+                "+    x = f(y)  # noqa: F821  token",
+            ],
+        ),
+        doc("src/a.py"),
+        &[],
+        &[],
+    );
+    assert!(!rules(&h).contains(&Rule::SuppressionAdded));
+    assert!(!rules(&h).contains(&Rule::SensitiveArea));
+    // One removed, two added: the second is new.
+    let h = scored(
+        hunk(
+            "a.ts",
+            &["-a as any", "+b as any", "+c as any", "+// token"],
+        ),
+        doc("a.ts"),
+        &[],
+        &[],
+    );
+    assert_eq!(
+        reason(&h, Rule::SuppressionAdded),
+        "suppression added: 'as any' (line 2)"
+    );
+    assert_eq!(
+        reason(&h, Rule::SensitiveArea),
+        "sensitive area: added lines mention 'token'"
+    );
+}
+
+#[test]
+fn public_rename_is_reported_and_not_demoted() {
+    let mut s = sym("g", "lib.py", Change::Renamed { from: "f".into() }, true);
+    s.new_sig = None;
+    let h = scored(
+        hunk("lib.py", &["-def f(a):", "+def g(a):"]),
+        file("lib.py", FileStatus::Modified, Some(Lang::Python)),
+        &[s],
+        &[],
+    );
+    assert_eq!(
+        reason(&h, Rule::PublicSigChanged),
+        "public symbol 'f' renamed to 'g'"
+    );
+}
+
+#[test]
+fn moved_label_points_to_destination_on_the_removed_side() {
+    let from = Loc {
+        path: "new.py".into(),
+        line: 3,
+    };
+    let mut h = hunk("old.py", &["-a = 1", "-b = 2"]);
+    h.kind = HunkKind::Moved { from: from.clone() };
+    let h = scored(h, doc("old.py"), &[], &[]);
+    assert_eq!(h.signals[0].reason, "moved to new.py:3");
 }

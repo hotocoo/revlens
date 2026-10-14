@@ -35,6 +35,9 @@ enum Cmd {
         /// Print the full analysis as JSON.
         #[arg(long)]
         json: bool,
+        /// Skip the scan for functions that duplicate existing code.
+        #[arg(long)]
+        no_reuse: bool,
     },
     /// Serve the live review UI for a change.
     Review {
@@ -52,6 +55,9 @@ enum Cmd {
         /// Agent assumptions JSONL (default: .revlens/assumptions.jsonl).
         #[arg(long)]
         assumptions: Option<PathBuf>,
+        /// Skip the scan for functions that duplicate existing code.
+        #[arg(long)]
+        no_reuse: bool,
         /// Listen on all interfaces so teammates can join.
         #[arg(long)]
         share: bool,
@@ -74,6 +80,9 @@ enum Cmd {
         pr: Option<u32>,
         #[arg(long)]
         assumptions: Option<PathBuf>,
+        /// Skip the scan for functions that duplicate existing code.
+        #[arg(long)]
+        no_reuse: bool,
         #[arg(long, value_enum, default_value = "md")]
         format: Format,
         /// Write to this file instead of stdout.
@@ -100,9 +109,15 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Cmd::Analyze { range, repo, json } => {
+        Cmd::Analyze {
+            range,
+            repo,
+            json,
+            no_reuse,
+        } => {
             let repo = Repo::discover(&repo)?;
-            let cfg = Config::load(repo.root())?;
+            let mut cfg = Config::load(repo.root())?;
+            cfg.limits.reuse_enabled &= !no_reuse;
             let (base, head) = parse_range(&range)?;
             let analysis = analyze::run(&repo, &base, &head, &cfg)?;
             if json {
@@ -120,6 +135,7 @@ fn run(cli: Cli) -> Result<()> {
             intent,
             pr,
             assumptions,
+            no_reuse,
             share,
             port,
             no_open,
@@ -130,6 +146,7 @@ fn run(cli: Cli) -> Result<()> {
                 intent: intent.as_deref(),
                 pr,
                 assumptions: assumptions.as_deref(),
+                no_reuse,
             };
             review(&src, share, port, no_open)
         }
@@ -139,6 +156,7 @@ fn run(cli: Cli) -> Result<()> {
             intent,
             pr,
             assumptions,
+            no_reuse,
             format,
             out,
         } => {
@@ -148,6 +166,7 @@ fn run(cli: Cli) -> Result<()> {
                 intent: intent.as_deref(),
                 pr,
                 assumptions: assumptions.as_deref(),
+                no_reuse,
             };
             export(&src, format, out.as_deref())
         }
@@ -165,10 +184,28 @@ fn review(src: &Source, share: bool, port: Option<u16>, no_open: bool) -> Result
     println!("Hint: add .revlens/sessions/ to .gitignore.");
     let rt = tokio::runtime::Runtime::new().context("starting async runtime")?;
     rt.block_on(server::serve(analysis, path, &cfg, share, port, |url| {
+        if share {
+            print_share_urls(url, &cfg.server.lan_probe);
+        }
         if !no_open {
             session_cli::open_browser(url);
         }
     }))
+}
+
+/// Teammate-reachable URLs for a server listening on all interfaces.
+fn print_share_urls(local_url: &str, probe: &str) {
+    let addrs = session_cli::lan_addrs(&[probe]);
+    if addrs.is_empty() {
+        println!(
+            "No LAN address found (offline?); use this machine's address with the port above."
+        );
+        return;
+    }
+    println!("Share with teammates on your network:");
+    for url in session_cli::share_urls(local_url, &addrs) {
+        println!("  {url}");
+    }
 }
 
 fn export(src: &Source, format: Format, out: Option<&Path>) -> Result<()> {
@@ -228,7 +265,7 @@ fn render(range: &str, a: &Analysis) -> String {
             h.new_start
         ));
         if let HunkKind::Moved { from } = &h.kind {
-            out.push_str(&format!("      moved from {}:{}\n", from.path, from.line));
+            out.push_str(&format!("      {}\n", h.move_label(from)));
             continue;
         }
         for s in &h.signals {

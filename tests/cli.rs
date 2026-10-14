@@ -200,3 +200,24 @@ fn bad_inputs_fail_with_codes() -> Result<()> {
     assert_eq!(usage.status.code(), Some(2));
     Ok(())
 }
+
+const DUP_A: &str = "def parse_rows(rows):\n    out = []\n    for row in rows:\n        if row.get('ok'):\n            out.append(row['value'] * 2)\n        else:\n            out.append(0)\n    return out\n";
+const DUP_B: &str = "def read_items(items):\n    res = []\n    for it in items:\n        if it.get('good'):\n            res.append(it['n'] * 3)\n        else:\n            res.append(1)\n    return res\n";
+
+#[test]
+fn no_reuse_flag_turns_off_duplicate_detection() -> Result<()> {
+    let f = fixture(&[("a.py", DUP_A)], &[("a.py", DUP_A), ("b.py", DUP_B)])?;
+    let with = run(&["analyze", &range(&f)], f.dir.path())?;
+    assert!(with.status.success());
+    assert!(
+        text(&with.stdout).contains("new 'read_items' duplicates existing 'parse_rows' at a.py:1"),
+        "{}",
+        text(&with.stdout)
+    );
+    let without = run(&["analyze", &range(&f), "--no-reuse"], f.dir.path())?;
+    assert!(without.status.success());
+    assert!(!text(&without.stdout).contains("duplicates"));
+    let export = run(&["export", &range(&f), "--no-reuse"], f.dir.path())?;
+    assert!(export.status.success(), "{}", text(&export.stderr));
+    Ok(())
+}

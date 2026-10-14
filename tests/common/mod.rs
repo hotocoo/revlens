@@ -80,8 +80,12 @@ pub fn fixture(base: &[(&str, &str)], head: &[(&str, &str)]) -> Result<Fixture> 
 }
 
 pub fn analyze(fx: &Fixture) -> Result<Analysis> {
+    analyze_with(fx, &Config::default())
+}
+
+pub fn analyze_with(fx: &Fixture, cfg: &Config) -> Result<Analysis> {
     let repo = Repo::discover(fx.dir.path())?;
-    analyze::run(&repo, &fx.base, &fx.head, &Config::default())
+    analyze::run(&repo, &fx.base, &fx.head, cfg)
 }
 
 /// Shortcut: build the fixture and analyze it.

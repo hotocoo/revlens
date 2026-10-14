@@ -385,7 +385,10 @@ mod tests {
         );
         write(p, "copy.txt", lines("src", 20).as_bytes());
         std::fs::remove_file(p.join("t.txt")).expect("rm");
+        #[cfg(unix)]
         std::os::unix::fs::symlink("m.txt", p.join("t.txt")).expect("symlink");
+        #[cfg(not(unix))]
+        write(p, "t.txt", b"m.txt"); // no symlinks without privileges: still a modification
         let head = commit(p);
         (d, base, head)
     }

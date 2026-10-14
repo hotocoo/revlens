@@ -88,14 +88,14 @@ pub struct Patterns {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Limits {
-    /// Minimum fraction (0-100) of a hunk's changed lines found elsewhere for it to count as moved.
-    pub moved_line_pct: u32,
     /// Minimum lines in a block for the line-based move fallback.
     pub moved_min_block: usize,
     /// Minimum AST nodes for a function to be considered by reuse-miss detection.
     pub reuse_min_nodes: usize,
     /// Minimum AST nodes for a definition to be paired as a rename across unrelated files.
     pub rename_min_nodes: usize,
+    /// Scan the base tree for existing duplicates of added functions (`--no-reuse` turns it off).
+    pub reuse_enabled: bool,
     /// Files larger than this (bytes) are skipped by reuse-miss scanning.
     pub reuse_max_file_bytes: usize,
     /// Files with average line length above this are treated as minified and skipped.
@@ -121,6 +121,9 @@ pub struct Server {
     pub max_doc_bytes: usize,
     /// Concurrent WebSocket connections allowed.
     pub max_ws_connections: usize,
+    /// Address a UDP socket is connected to (nothing is sent) to learn which local interface
+    /// address leads off this machine; printed as the `--share` URL. Must never be routed.
+    pub lan_probe: String,
 }
 
 impl Default for Weights {
@@ -219,7 +222,12 @@ impl Default for Patterns {
             indent_sensitive: strings(&[".py", ".pyi", ".yml", ".yaml", "makefile", ".mk"]),
             test_symbols: strings(&["test_", "Test"]),
             assertions: strings(&["assert", "expect("]),
-            dependency_sections: strings(&["dependencies", "devDependencies", "peerDependencies"]),
+            dependency_sections: strings(&[
+                "dependencies",
+                "devDependencies",
+                "peerDependencies",
+                "optionalDependencies",
+            ]),
             error_handling: strings(&["try", "catch", "except"]),
             weak_handlers: strings(&[
                 "except:",
@@ -234,9 +242,9 @@ impl Default for Patterns {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            moved_line_pct: 90,
             moved_min_block: 3,
             reuse_min_nodes: 30,
+            reuse_enabled: true,
             rename_min_nodes: 30,
             reuse_max_file_bytes: 500_000,
             minified_avg_line: 300,
@@ -255,6 +263,7 @@ impl Default for Server {
             max_ws_message_bytes: 1 << 20,
             max_doc_bytes: 8 << 20,
             max_ws_connections: 64,
+            lan_probe: "192.0.2.1:9".into(),
         }
     }
 }

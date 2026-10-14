@@ -116,22 +116,14 @@ pub async fn serve(
         &cfg.server.bind
     };
     let (listener, addr) = bind(host, port.unwrap_or(cfg.server.port)).await?;
-    println!(
-        "Lens review: http://{}:{}/?t={token}",
-        display_host(addr),
-        addr.port()
-    );
     let local_host = if addr.ip().is_unspecified() {
         "127.0.0.1".to_string()
     } else {
         addr.ip().to_string()
     };
-    on_ready(&format!("http://{local_host}:{}/?t={token}", addr.port()));
-    if addr.ip().is_unspecified() {
-        println!(
-            "Listening on all interfaces; replace <this-machine-ip> with an address teammates can reach."
-        );
-    }
+    let url = format!("http://{local_host}:{}/?t={token}", addr.port());
+    println!("Lens review: {url}");
+    on_ready(&url);
     let saver = tokio::spawn(
         session
             .clone()
@@ -145,14 +137,6 @@ pub async fn serve(
     saver.abort();
     session.persist()?;
     result
-}
-
-fn display_host(addr: SocketAddr) -> String {
-    if addr.ip().is_unspecified() {
-        "<this-machine-ip>".into()
-    } else {
-        addr.ip().to_string()
-    }
 }
 
 fn asset(content_type: &'static str, body: &'static [u8], html: bool) -> Response {
@@ -380,17 +364,5 @@ mod tests {
         assert!(!authorized("tok", &req("/x?t=nope", None)));
         assert!(!authorized("tok", &req("/x", Some("Bearer nope"))));
         assert!(!authorized("tok", &req("/x", Some("tok"))));
-    }
-
-    #[test]
-    fn display_host_hides_wildcard() {
-        assert_eq!(
-            display_host("0.0.0.0:1".parse().expect("addr")),
-            "<this-machine-ip>"
-        );
-        assert_eq!(
-            display_host("127.0.0.1:1".parse().expect("addr")),
-            "127.0.0.1"
-        );
     }
 }

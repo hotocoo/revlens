@@ -76,7 +76,10 @@ export function HunkCard({ hunk: h, analysis, session: s, peers, crits, selected
         ))}
       </header>
       {h.kind.type === "Moved" && (
-        <p class="muted">Moved from <span class="mono">{h.kind.from.path}:{h.kind.from.line}</span></p>
+        <p class="muted">
+          Moved {h.lines.find((l) => l.kind !== " ")?.kind === "-" ? "to" : "from"}{" "}
+          <span class="mono">{h.kind.from.path}:{h.kind.from.line}</span>
+        </p>
       )}
       {h.signals.length > 0 && (
         <ul class="chips" aria-label="Risk reasons">

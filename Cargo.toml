@@ -2,6 +2,15 @@
 name = "revlens"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Intent-aware, risk-ranked, live multi-reviewer code review for git changes"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hotocoo/revlens"
+homepage = "https://github.com/hotocoo/revlens"
+readme = "README.md"
+keywords = ["code-review", "git", "diff", "tree-sitter", "collaboration"]
+categories = ["development-tools", "command-line-utilities"]
+include = ["/src/**", "!/src/snapshots/**", "/ui/dist/**", "/README.md", "/LICENSE-*", "/examples/**"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -26,3 +35,7 @@ tokio-tungstenite = "0.30.0"
 
 [profile.test]
 opt-level = 1
+
+[profile.release]
+lto = "thin"
+strip = true

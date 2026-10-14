@@ -4,10 +4,18 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::config::{Config, Patterns};
-use crate::deps;
+use crate::deps::{self, Scan, Scans};
 use crate::model::{
-    Change, FileDiff, FileStatus, Hunk, HunkKind, LineKind, RiskSignal, Rule, SymbolChange,
+    Change, FileDiff, FileStatus, Hunk, HunkId, HunkKind, LineKind, RiskSignal, Rule, SymbolChange,
 };
+use crate::reuse::Miss;
+
+/// Findings that need more than the diff: parsed manifests and the base-tree duplicate scan.
+#[derive(Debug, Default)]
+pub struct Findings {
+    pub deps: Scans,
+    pub reuse: HashMap<HunkId, Vec<Miss>>,
+}
 
 /// Patterns (case-insensitive substrings) that match `path`, in config order.
 /// The path is matched with a leading `/` so `"/tests/"` also matches `tests/a.py`.
@@ -60,7 +68,13 @@ fn quote_list(items: &[String]) -> String {
 }
 
 /// Assign `signals` and `score` to every hunk.
-pub fn score(files: &[FileDiff], hunks: &mut [Hunk], symbols: &[SymbolChange], cfg: &Config) {
+pub fn score(
+    files: &[FileDiff],
+    hunks: &mut [Hunk],
+    symbols: &[SymbolChange],
+    found: &Findings,
+    cfg: &Config,
+) {
     let by_path: HashMap<&str, &FileDiff> = files.iter().map(|f| (f.path(), f)).collect();
     let test_stems: Vec<String> = files
         .iter()
@@ -73,6 +87,7 @@ pub fn score(files: &[FileDiff], hunks: &mut [Hunk], symbols: &[SymbolChange], c
             file,
             symbols,
             test_stems: &test_stems,
+            found,
             cfg,
         };
         let signals = match demotion(h, file) {
@@ -104,20 +119,33 @@ fn demotion(h: &Hunk, file: Option<&FileDiff>) -> Option<RiskSignal> {
         );
     }
     match &h.kind {
-        HunkKind::Moved { from } => signal(
-            Rule::Moved,
-            0,
-            format!("moved from {}:{}", from.path, from.line),
-        ),
+        HunkKind::Moved { from } => signal(Rule::Moved, 0, h.move_label(from)),
         HunkKind::FormatOnly => signal(Rule::FormatOnly, 0, "whitespace-only change".into()),
         _ => None,
     }
+}
+
+/// Line of the first added line carrying `pat` (case-insensitive) beyond those the removed lines
+/// already carried; `None` when the pattern was only kept, re-indented or moved within the hunk.
+fn net_added_line(h: &Hunk, pat: &str) -> Option<u32> {
+    let pat = pat.to_lowercase();
+    let has = |t: &str| t.to_lowercase().contains(&pat);
+    let ch = h.changed();
+    let removed = ch
+        .iter()
+        .filter(|(k, _, t)| *k == LineKind::Removed && has(t))
+        .count();
+    ch.iter()
+        .filter(|(k, _, t)| *k == LineKind::Added && has(t))
+        .nth(removed)
+        .map(|(_, n, _)| *n)
 }
 
 struct Ctx<'a> {
     file: Option<&'a FileDiff>,
     symbols: &'a [SymbolChange],
     test_stems: &'a [String],
+    found: &'a Findings,
     cfg: &'a Config,
 }
 
@@ -128,6 +156,7 @@ impl Ctx<'_> {
             self.test_removed(h),
             self.new_dependency(h),
             self.sensitive(h),
+            self.reuse_miss(h),
             self.suppression(h),
             self.error_handling(h),
             self.infra(h),
@@ -152,6 +181,9 @@ impl Ctx<'_> {
                     "public signature of '{}' changed: {o} -> {n}",
                     s.name
                 )),
+                (Change::Renamed { from }, _, _) => {
+                    Some(format!("public symbol '{from}' renamed to '{}'", s.name))
+                }
                 (Change::Removed, _, _) => Some(format!("public symbol '{}' removed", s.name)),
                 _ => None,
             })
@@ -204,27 +236,44 @@ impl Ctx<'_> {
     }
 
     fn new_dependency(&self, h: &Hunk) -> Option<RiskSignal> {
-        let names = deps::added(&h.path, &h.lines, &self.cfg.patterns.dependency_sections);
-        let reason = format!("new dependency {} in {}", quote_list(&names), h.path);
+        let (names, note) = match self.found.deps.get(&h.path) {
+            Some(Scan::Parsed(by_hunk)) => (by_hunk.get(&h.id).cloned().unwrap_or_default(), ""),
+            unparsed => {
+                let names = deps::added(&h.path, &h.lines, &self.cfg.patterns.dependency_sections);
+                let note = if unparsed.is_some() {
+                    " (line heuristic: manifest could not be parsed)"
+                } else {
+                    ""
+                };
+                (names, note)
+            }
+        };
+        let reason = format!("new dependency {} in {}{note}", quote_list(&names), h.path);
         signal(Rule::NewDependency, self.cfg.weights.new_dependency, reason)
             .filter(|_| !names.is_empty())
+    }
+
+    fn reuse_miss(&self, h: &Hunk) -> Option<RiskSignal> {
+        let misses = self.found.reuse.get(&h.id)?;
+        let first = misses.first()?;
+        let reasons: Vec<String> = misses.iter().map(Miss::reason).collect();
+        signal(
+            Rule::ReuseMiss {
+                existing: first.at.clone(),
+            },
+            self.cfg.weights.reuse_miss,
+            reasons.join("; "),
+        )
     }
 
     fn sensitive(&self, h: &Hunk) -> Option<RiskSignal> {
         let pats = &self.cfg.patterns.sensitive;
         let in_path = matching(&h.path, pats);
-        let mut in_lines: Vec<&str> = Vec::new();
-        for (kind, _, text) in h.changed() {
-            let lower = text.to_lowercase();
-            for p in pats
-                .iter()
-                .filter(|p| kind == LineKind::Added && lower.contains(&p.to_lowercase()))
-            {
-                if !in_lines.contains(&p.as_str()) {
-                    in_lines.push(p);
-                }
-            }
-        }
+        let in_lines: Vec<&str> = pats
+            .iter()
+            .filter(|p| net_added_line(h, p).is_some())
+            .map(String::as_str)
+            .collect();
         let mut parts = Vec::new();
         if !in_path.is_empty() {
             parts.push(format!("path matches {}", quote_list(&owned(&in_path))));
@@ -244,16 +293,13 @@ impl Ctx<'_> {
     }
 
     fn suppression(&self, h: &Hunk) -> Option<RiskSignal> {
-        let mut found: Vec<String> = Vec::new();
-        for (kind, line, text) in h.changed() {
-            let lower = text.to_lowercase();
-            for p in &self.cfg.patterns.suppressions {
-                let hit = kind == LineKind::Added && lower.contains(&p.to_lowercase());
-                if hit && !found.iter().any(|f| f.starts_with(&format!("'{p}'"))) {
-                    found.push(format!("'{p}' (line {line})"));
-                }
-            }
-        }
+        let found: Vec<String> = self
+            .cfg
+            .patterns
+            .suppressions
+            .iter()
+            .filter_map(|p| net_added_line(h, p).map(|line| format!("'{p}' (line {line})")))
+            .collect();
         signal(
             Rule::SuppressionAdded,
             self.cfg.weights.suppression_added,

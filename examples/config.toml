@@ -1,0 +1,96 @@
+# Copy to .revlens/config.toml in your repository and change what you need.
+# Every key is optional; this file lists every default. Unknown keys are an error.
+# tests/config_example.rs keeps this file equal to the built-in defaults.
+
+[weights]
+# Points added to a hunk's risk score per rule.
+public_sig_changed = 30
+test_removed = 30
+new_dependency = 25
+sensitive_area = 20
+reuse_miss = 20
+suppression_added = 15
+error_handling_weakened = 15
+infra_config = 15
+no_test_touch = 10
+# Size adds min(size_cap, log2(added + removed)).
+size_cap = 10
+
+[patterns]
+# Case-insensitive substrings matched against file paths and added lines.
+sensitive = [
+    "auth", "token", "secret", "password", "passwd", "credential", "crypto", "sql",
+    "migration", "eval(", "exec(", "subprocess", "pickle", "dangerouslysetinnerhtml",
+    "innerhtml", "permission", "session",
+]
+# Matched against added lines.
+suppressions = [
+    "@ts-ignore", "@ts-expect-error", "@ts-nocheck", "as any", "eslint-disable",
+    "# type: ignore", "# noqa", "# pragma: no cover", "# pylint: disable",
+]
+# Path substrings marking CI, build and infrastructure config.
+infra_paths = [
+    ".github/workflows/", ".gitlab-ci", "dockerfile", "docker-compose", ".env", "makefile",
+    "terraform", ".circleci/", "jenkinsfile", "helm/", "k8s/",
+]
+# Path substrings marking generated files and lockfiles (score forced to 0).
+generated_paths = [
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "uv.lock",
+    "pipfile.lock", "cargo.lock", ".min.js", ".snap", "/dist/", "/build/", "_pb2.py",
+    ".generated.", "/vendor/",
+]
+# Path substrings marking test files.
+test_paths = [
+    "/test_", "_test.", ".test.", ".spec.", "/tests/", "/test/", "/__tests__/", "conftest.py",
+]
+# Files where indentation carries meaning (whitespace-only edits are never demoted as formatting).
+indent_sensitive = [".py", ".pyi", ".yml", ".yaml", "makefile", ".mk"]
+# Name prefixes marking test definitions.
+test_symbols = ["test_", "Test"]
+# Substrings counted per line in test files to detect dropped assertions.
+assertions = ["assert", "expect("]
+# Keys of package.json blocks that list dependencies.
+dependency_sections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+# Line-leading keywords of error handling blocks; removing them weakens handling.
+error_handling = ["try", "catch", "except"]
+# Added handlers that swallow errors (whitespace-insensitive, line-leading).
+weak_handlers = ["except:", "except Exception: pass", "catch {}", "catch (e) {}"]
+
+[limits]
+# Minimum lines in a block for the line-based move fallback.
+moved_min_block = 3
+# Minimum AST nodes for a function to be considered by reuse-miss detection.
+reuse_min_nodes = 30
+# Minimum AST nodes for a definition to be paired as a rename across unrelated files.
+rename_min_nodes = 30
+# Scan the base tree for existing duplicates of added functions (--no-reuse turns it off).
+reuse_enabled = true
+# Files larger than this many bytes are skipped by reuse-miss scanning.
+reuse_max_file_bytes = 500000
+# Files with an average line length above this are treated as minified and skipped.
+minified_avg_line = 300
+# Rename and copy similarity threshold passed to git diff -M/-C, in percent.
+rename_similarity = 50
+
+[server]
+# Address used without --share.
+bind = "127.0.0.1"
+# Address used with --share.
+share_bind = "0.0.0.0"
+# 0 picks a free port.
+port = 0
+# Debounce for persisting the live session document, in milliseconds.
+persist_debounce_ms = 1000
+# Largest accepted WebSocket message, in bytes (1 MiB).
+max_ws_message_bytes = 1048576
+# Session document size above which clients are refused, in bytes (8 MiB).
+max_doc_bytes = 8388608
+# Concurrent WebSocket connections allowed.
+max_ws_connections = 64
+# Address a UDP socket is connected to (nothing is sent) to learn the local interface address
+# printed for --share. Must never be routed.
+lan_probe = "192.0.2.1:9"
+
+[intent]
+# Heading words (case-insensitive, whole word) that introduce acceptance criteria lists.
+headings = ["acceptance", "criteria", "requirements", "definition of done", "AC"]

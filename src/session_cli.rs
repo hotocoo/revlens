@@ -1,6 +1,7 @@
 //! Shared plumbing for `revlens review` and `revlens export`: build the analysis with intent
 //! and assumptions attached, and locate the session file.
 
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -20,6 +21,8 @@ pub struct Source<'a> {
     pub intent: Option<&'a Path>,
     pub pr: Option<u32>,
     pub assumptions: Option<&'a Path>,
+    /// Skip the duplicate-code scan (`--no-reuse`).
+    pub no_reuse: bool,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -45,7 +48,8 @@ pub fn choose_range(range: Option<&str>, pr: Option<&PrInfo>) -> Result<(String,
 
 pub fn load(src: &Source) -> Result<(Repo, Analysis)> {
     let repo = Repo::discover(src.repo)?;
-    let cfg = Config::load(repo.root())?;
+    let mut cfg = Config::load(repo.root())?;
+    cfg.limits.reuse_enabled &= !src.no_reuse;
     let pr = src.pr.map(|n| fetch_pr(&repo, n)).transpose()?;
     let (base, head) = choose_range(src.range, pr.as_ref())?;
     let mut analysis = analyze::run(&repo, &base, &head, &cfg)?;
@@ -128,6 +132,54 @@ fn git_fetch(repo: &Repo, refspec: &str) -> Result<()> {
     Ok(())
 }
 
+/// Local address of the interface that routes to `probe`. A connected UDP socket only selects a
+/// route; nothing is sent, so `probe` need not be reachable (or even exist).
+pub fn local_addr_toward(probe: &str) -> Result<IpAddr> {
+    let target = probe
+        .to_socket_addrs()
+        .with_context(|| format!("server.lan_probe '{probe}' is not a socket address"))?
+        .next()
+        .with_context(|| format!("server.lan_probe '{probe}' resolves to nothing"))?;
+    let any: SocketAddr = if target.is_ipv4() {
+        ([0, 0, 0, 0], 0).into()
+    } else {
+        ([0u16; 8], 0).into()
+    };
+    let sock = UdpSocket::bind(any).context("opening a UDP socket")?;
+    sock.connect(target)
+        .with_context(|| format!("no route to {probe}"))?;
+    Ok(sock.local_addr().context("reading local address")?.ip())
+}
+
+/// Non-loopback addresses teammates could use, one per probe that yields one.
+pub fn lan_addrs(probes: &[&str]) -> Vec<IpAddr> {
+    let mut out: Vec<IpAddr> = Vec::new();
+    for p in probes {
+        match local_addr_toward(p) {
+            Ok(ip) if !ip.is_loopback() && !ip.is_unspecified() && !out.contains(&ip) => {
+                out.push(ip)
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("warning: {e:#}"),
+        }
+    }
+    out
+}
+
+/// `local_url` (host 127.0.0.1) re-addressed to each of `addrs`.
+pub fn share_urls(local_url: &str, addrs: &[IpAddr]) -> Vec<String> {
+    addrs
+        .iter()
+        .map(|ip| {
+            let host = match ip {
+                IpAddr::V4(v) => v.to_string(),
+                IpAddr::V6(v) => format!("[{v}]"),
+            };
+            local_url.replacen("127.0.0.1", &host, 1)
+        })
+        .collect()
+}
+
 /// Best effort: a missing opener is not an error.
 pub fn open_browser(url: &str) {
     let (prog, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
@@ -154,6 +206,105 @@ mod tests {
     fn pr_json_parses() {
         assert_eq!(pr().head_ref_oid, "h1");
         assert!(parse_pr_info("{}").is_err());
+    }
+
+    #[test]
+    fn local_addr_toward_loopback_is_loopback_and_sends_nothing() {
+        let ip = local_addr_toward("127.0.0.1:9").expect("route");
+        assert!(ip.is_loopback());
+        assert!(local_addr_toward("not an address").is_err());
+    }
+
+    #[test]
+    fn lan_addrs_drops_loopback_and_bad_probes() {
+        assert!(lan_addrs(&["127.0.0.1:9", "nonsense"]).is_empty());
+    }
+
+    #[test]
+    fn share_urls_readdress_every_candidate() {
+        let addrs: Vec<IpAddr> = vec![
+            "192.168.1.7".parse().expect("ip"),
+            "fd00::7".parse().expect("ip"),
+        ];
+        assert_eq!(
+            share_urls("http://127.0.0.1:4100/?t=abc", &addrs),
+            [
+                "http://192.168.1.7:4100/?t=abc",
+                "http://[fd00::7]:4100/?t=abc"
+            ]
+        );
+        assert!(share_urls("http://127.0.0.1:1/", &[]).is_empty());
+    }
+
+    fn git(dir: &std::path::Path, args: &[&str]) {
+        let st = Command::new("git")
+            .current_dir(dir)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .status()
+            .expect("git");
+        assert!(st.success(), "git {args:?}");
+    }
+
+    fn init_repo(dir: &std::path::Path) -> Repo {
+        git(dir, &["init", "-q"]);
+        std::fs::write(dir.join("a.txt"), "x\n").expect("write");
+        git(dir, &["add", "."]);
+        git(dir, &["commit", "-qm", "c"]);
+        Repo::discover(dir).expect("repo")
+    }
+
+    #[test]
+    fn git_fetch_reports_missing_origin_and_succeeds_with_one() {
+        let origin = tempfile::tempdir().expect("tmp");
+        init_repo(origin.path());
+        let work = tempfile::tempdir().expect("tmp");
+        let repo = init_repo(work.path());
+        let err = git_fetch(&repo, "HEAD").expect_err("no origin");
+        assert!(format!("{err:#}").contains("fetch"), "{err:#}");
+        git(
+            work.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                &origin.path().display().to_string(),
+            ],
+        );
+        git_fetch(&repo, "HEAD").expect("fetch");
+    }
+
+    #[test]
+    fn session_path_is_keyed_by_criteria_set() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let repo = init_repo(dir.path());
+        let mut a = Analysis {
+            range: crate::model::Range {
+                base: "b".into(),
+                head: "h".into(),
+                merge_base: "m".into(),
+            },
+            files: vec![],
+            hunks: vec![],
+            symbols: vec![],
+            criteria: vec![],
+            assumptions: vec![],
+        };
+        let bare = session_path(&repo, &a);
+        assert!(bare.starts_with(repo.root().join(".revlens/sessions")));
+        assert_eq!(bare.extension().and_then(|e| e.to_str()), Some("ydoc"));
+        a.criteria = intent::parse_criteria("- one\n- two\n", &Config::default());
+        let with = session_path(&repo, &a);
+        assert_ne!(bare, with);
+        a.criteria = intent::parse_criteria("- one\n- three\n", &Config::default());
+        assert_ne!(with, session_path(&repo, &a));
     }
 
     #[test]

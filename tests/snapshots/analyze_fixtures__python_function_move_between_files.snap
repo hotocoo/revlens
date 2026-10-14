@@ -21,7 +21,7 @@ expression: summary(&a)
             "type": "Moved"
           },
           0,
-          "moved from b.py:1"
+          "moved to b.py:1"
         ]
       ]
     },

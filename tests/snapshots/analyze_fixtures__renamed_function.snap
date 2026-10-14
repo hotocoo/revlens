@@ -6,22 +6,32 @@ expression: summary(&a)
   "hunks": [
     {
       "kind": {
-        "from": {
-          "line": 1,
-          "path": "a.py"
-        },
-        "type": "Moved"
+        "type": "Changed"
       },
       "new_start": 1,
       "path": "a.py",
-      "score": 0,
+      "score": 41,
       "signals": [
         [
           {
-            "type": "Moved"
+            "type": "PublicSigChanged"
           },
-          0,
-          "moved from a.py:1"
+          30,
+          "public symbol 'helper' renamed to 'accumulate'"
+        ],
+        [
+          {
+            "type": "NoTestTouch"
+          },
+          10,
+          "source file a.py changed but no test file mentioning 'a' changed"
+        ],
+        [
+          {
+            "type": "Size"
+          },
+          1,
+          "2 changed lines"
         ]
       ]
     }

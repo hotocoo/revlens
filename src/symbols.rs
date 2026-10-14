@@ -293,14 +293,15 @@ fn link_hunks(entries: &mut [Entry], hunks: &mut [Hunk]) {
     }
 }
 
-/// A hunk whose every changed line sits inside a Moved or Renamed def is a pure move.
+/// A hunk whose every changed line sits inside a Moved def is a pure move. A rename changes the name callers
+/// use, so it stays an ordinary changed hunk.
 fn mark_pure_moves(entries: &[Entry], hunks: &mut [Hunk]) {
     for h in hunks.iter_mut() {
         let movers: Vec<&Entry> = h
             .symbols
             .iter()
             .map(|&i| &entries[i])
-            .filter(|e| matches!(e.sym.change, Change::Moved { .. } | Change::Renamed { .. }))
+            .filter(|e| matches!(e.sym.change, Change::Moved { .. }))
             .collect();
         let lines: Vec<_> = h
             .changed()
@@ -344,10 +345,9 @@ fn mark_line_moves(hunks: &mut [Hunk], limits: &Limits, indent_sensitive: &[Stri
         )
     };
     let pool: Vec<Hunk> = hunks.iter().filter(|h| open(h)).cloned().collect();
-    let moved: HashMap<_, _> =
-        fingerprint::moved_blocks(&pool, limits.moved_min_block, limits.moved_line_pct)
-            .into_iter()
-            .collect();
+    let moved: HashMap<_, _> = fingerprint::moved_blocks(&pool, limits.moved_min_block)
+        .into_iter()
+        .collect();
     for h in hunks.iter_mut().filter(|h| open(h)) {
         if let Some(from) = moved.get(&h.id) {
             h.kind = HunkKind::Moved { from: from.clone() };
@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn rename_in_place_is_pure_move() {
+    fn rename_in_place_is_not_a_pure_move() {
         let g = "def g(x):\n    return x + 1\n";
         let mut hunks = [hunk(
             "h1",
@@ -551,15 +551,7 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].change, Change::Renamed { from: "f".into() });
         assert_eq!(s[0].name, "g");
-        assert_eq!(
-            hunks[0].kind,
-            HunkKind::Moved {
-                from: Loc {
-                    path: "a.py".into(),
-                    line: 1
-                }
-            }
-        );
+        assert_eq!(hunks[0].kind, HunkKind::Changed);
     }
 
     #[test]

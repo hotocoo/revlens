@@ -8,7 +8,8 @@ use crate::config::Config;
 use crate::git::Repo;
 use crate::lang::{self, Def};
 use crate::model::{Analysis, FileDiff, FileStatus, Hunk, HunkKind, Line, LineKind, Range};
-use crate::{patch, risk, symbols};
+use crate::risk::Findings;
+use crate::{deps, patch, reuse, risk, symbols};
 
 pub fn run(repo: &Repo, base: &str, head: &str, cfg: &Config) -> Result<Analysis> {
     let base = repo
@@ -40,7 +41,11 @@ pub fn run(repo: &Repo, base: &str, head: &str, cfg: &Config) -> Result<Analysis
         &cfg.limits,
         &cfg.patterns.indent_sensitive,
     );
-    risk::score(&files, &mut hunks, &symbols, cfg);
+    let found = Findings {
+        deps: deps::scan(repo, &merge_base, &head, &files, &hunks, cfg)?,
+        reuse: reuse::scan(repo, &merge_base, &files, &new, &symbols, cfg)?,
+    };
+    risk::score(&files, &mut hunks, &symbols, &found, cfg);
     risk::rank(&mut hunks);
 
     Ok(Analysis {
