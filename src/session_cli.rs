@@ -59,7 +59,16 @@ pub fn load(src: &Source) -> Result<(Repo, Analysis)> {
                 .with_context(|| format!("reading intent file {}", path.display()))?;
             intent::parse_criteria(&doc, &cfg)
         }
-        (None, Some(p)) => intent::intent_from_pr_body(&p.body, &cfg),
+        (None, Some(p)) => {
+            let c = intent::intent_from_pr_body(&p.body, &cfg);
+            if c.is_empty() {
+                eprintln!(
+                    "note: PR body has no acceptance-criteria section (headings: {}); pass --intent <FILE> to review against criteria",
+                    cfg.intent.headings.join(", ")
+                );
+            }
+            c
+        }
         (None, None) => Vec::new(),
     };
     let default_assumptions = repo.root().join(".revlens/assumptions.jsonl");

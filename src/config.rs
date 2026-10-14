@@ -23,6 +23,9 @@ pub struct Config {
 pub struct Intent {
     /// Heading words (case-insensitive, whole-word) that introduce acceptance criteria lists.
     pub headings: Vec<String>,
+    /// For `--pr`, take criteria only from sections under one of `headings`; a PR template
+    /// checklist is not acceptance criteria.
+    pub pr_require_heading: bool,
 }
 
 impl Default for Intent {
@@ -35,6 +38,7 @@ impl Default for Intent {
                 "definition of done",
                 "AC",
             ]),
+            pr_require_heading: true,
         }
     }
 }

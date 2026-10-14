@@ -113,6 +113,11 @@ fn export_pr_uses_gh_for_range_and_criteria() {
     );
     assert!(text.contains("b47d94c90445"), "{text}");
     assert!(text.contains("433684fc8a10"), "{text}");
-    assert!(text.contains("port_or_default"), "{text}");
     assert!(text.contains("## Scope creep"), "{text}");
+    // The body is a template (Summary + Checklist) with no acceptance-criteria heading:
+    // nothing from it becomes a criterion, and the user is told why.
+    assert!(!text.contains("may be closed"), "{text}");
+    assert!(!text.contains("port_or_default"), "{text}");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("no acceptance-criteria section"), "{err}");
 }

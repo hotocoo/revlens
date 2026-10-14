@@ -47,7 +47,7 @@ revlens review main..my-branch --intent ticket.md
 # Lens review: http://127.0.0.1:PORT/?t=TOKEN
 ```
 
-Or take the range and criteria from a GitHub PR (list items in the PR body):
+Or take the range and criteria from a GitHub PR. Criteria come from list items under an acceptance-criteria heading in the PR body (for example `## Acceptance criteria`); template checklists and HTML comments are ignored:
 
 ```sh
 revlens review --pr 123

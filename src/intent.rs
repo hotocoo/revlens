@@ -55,7 +55,15 @@ pub fn parse_criteria(doc: &str, cfg: &Config) -> Vec<Criterion> {
     out
 }
 
+/// PR bodies usually follow a template (summary, checklist), so by default only items under an
+/// acceptance-criteria heading count; an empty result means the body has no such section.
 pub fn intent_from_pr_body(body: &str, cfg: &Config) -> Vec<Criterion> {
+    let scoped = classify(body)
+        .iter()
+        .any(|l| matches!(&l.kind, Kind::Heading { text, .. } if is_criteria_heading(text, cfg)));
+    if cfg.intent.pr_require_heading && !scoped {
+        return Vec::new();
+    }
     parse_criteria(body, cfg)
 }
 
@@ -91,7 +99,23 @@ struct Line {
 }
 
 /// Split into headings, list items and plain text, skipping fenced code and blank lines.
+/// Blank out `<!-- ... -->` comments (PR templates), keeping line numbering intact.
+fn strip_comments(doc: &str) -> String {
+    let mut out = String::with_capacity(doc.len());
+    let mut rest = doc;
+    while let Some(start) = rest.find("<!--") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        let end = after.find("-->").map_or(after.len(), |e| e + 3);
+        out.extend(after[..end].chars().filter(|c| *c == '\n'));
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn classify(doc: &str) -> Vec<Line> {
+    let doc = strip_comments(doc);
     let mut out = Vec::new();
     let mut fence = false;
     for (i, raw) in doc.lines().enumerate() {
@@ -466,5 +490,34 @@ mod tests {
                 .is_empty()
         );
         assert!(load_assumptions(dir.path()).is_err());
+    }
+
+    #[test]
+    fn html_comments_are_ignored() {
+        let doc =
+            "<!-- Given this project is run by volunteers\nplease read -->\n- [ ] real item\n";
+        let c = parse_criteria(doc, &Config::default());
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].text, "real item");
+        assert_eq!(c[0].source_line, 3);
+    }
+
+    #[test]
+    fn pr_template_without_criteria_heading_yields_nothing() {
+        let body = "# Summary\nMoves helpers.\n# Checklist\n- [x] I understand this PR may be closed\n- [ ] Docs updated\n";
+        assert!(intent_from_pr_body(body, &Config::default()).is_empty());
+        let mut cfg = Config::default();
+        cfg.intent.pr_require_heading = false;
+        assert_eq!(intent_from_pr_body(body, &cfg).len(), 2);
+    }
+
+    #[test]
+    fn pr_body_with_criteria_heading_keeps_only_that_section() {
+        let body = "## Summary\n- context\n## Acceptance criteria\n- [ ] Fee is added\n## Checklist\n- [x] tests\n";
+        let c = intent_from_pr_body(body, &Config::default());
+        assert_eq!(
+            c.iter().map(|c| c.text.as_str()).collect::<Vec<_>>(),
+            ["Fee is added"]
+        );
     }
 }

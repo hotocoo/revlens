@@ -94,3 +94,5 @@ lan_probe = "192.0.2.1:9"
 [intent]
 # Heading words (case-insensitive, whole word) that introduce acceptance criteria lists.
 headings = ["acceptance", "criteria", "requirements", "definition of done", "AC"]
+# With --pr, take criteria only from sections under one of `headings` (template checklists are ignored).
+pr_require_heading = true
