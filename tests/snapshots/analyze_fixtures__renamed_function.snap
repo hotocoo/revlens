@@ -1,0 +1,40 @@
+---
+source: tests/analyze_fixtures.rs
+expression: summary(&a)
+---
+{
+  "hunks": [
+    {
+      "kind": {
+        "from": {
+          "line": 1,
+          "path": "a.py"
+        },
+        "type": "Moved"
+      },
+      "new_start": 1,
+      "path": "a.py",
+      "score": 0,
+      "signals": [
+        [
+          {
+            "type": "Moved"
+          },
+          0,
+          "moved from a.py:1"
+        ]
+      ]
+    }
+  ],
+  "symbols": [
+    {
+      "change": {
+        "from": "helper",
+        "type": "Renamed"
+      },
+      "name": "accumulate",
+      "path": "a.py",
+      "public": true
+    }
+  ]
+}

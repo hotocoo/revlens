@@ -1,0 +1,49 @@
+---
+source: tests/analyze_fixtures.rs
+expression: summary(&a)
+---
+{
+  "hunks": [
+    {
+      "kind": {
+        "type": "Changed"
+      },
+      "new_start": 1,
+      "path": "lib/parse.py",
+      "score": 41,
+      "signals": [
+        [
+          {
+            "type": "PublicSigChanged"
+          },
+          30,
+          "public signature of 'parse' changed: (a) -> (a, b)"
+        ],
+        [
+          {
+            "type": "NoTestTouch"
+          },
+          10,
+          "source file lib/parse.py changed but no test file mentioning 'parse' changed"
+        ],
+        [
+          {
+            "type": "Size"
+          },
+          1,
+          "2 changed lines"
+        ]
+      ]
+    }
+  ],
+  "symbols": [
+    {
+      "change": {
+        "type": "SignatureChanged"
+      },
+      "name": "parse",
+      "path": "lib/parse.py",
+      "public": true
+    }
+  ]
+}

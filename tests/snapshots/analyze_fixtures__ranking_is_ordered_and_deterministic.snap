@@ -1,0 +1,121 @@
+---
+source: tests/analyze_fixtures.rs
+expression: summary(&first)
+---
+{
+  "hunks": [
+    {
+      "kind": {
+        "type": "Changed"
+      },
+      "new_start": 1,
+      "path": "lib/parse.py",
+      "score": 41,
+      "signals": [
+        [
+          {
+            "type": "PublicSigChanged"
+          },
+          30,
+          "public signature of 'parse' changed: (a) -> (a, b)"
+        ],
+        [
+          {
+            "type": "NoTestTouch"
+          },
+          10,
+          "source file lib/parse.py changed but no test file mentioning 'parse' changed"
+        ],
+        [
+          {
+            "type": "Size"
+          },
+          1,
+          "2 changed lines"
+        ]
+      ]
+    },
+    {
+      "kind": {
+        "type": "Changed"
+      },
+      "new_start": 1,
+      "path": "src/auth.py",
+      "score": 31,
+      "signals": [
+        [
+          {
+            "type": "SensitiveArea"
+          },
+          20,
+          "sensitive area: path matches 'auth'"
+        ],
+        [
+          {
+            "type": "NoTestTouch"
+          },
+          10,
+          "source file src/auth.py changed but no test file mentioning 'auth' changed"
+        ],
+        [
+          {
+            "type": "Size"
+          },
+          1,
+          "2 changed lines"
+        ]
+      ]
+    },
+    {
+      "kind": {
+        "type": "Changed"
+      },
+      "new_start": 1,
+      "path": ".github/workflows/ci.yml",
+      "score": 16,
+      "signals": [
+        [
+          {
+            "type": "InfraConfig"
+          },
+          15,
+          "infra/CI config touched: .github/workflows/ci.yml (matches '.github/workflows/')"
+        ],
+        [
+          {
+            "type": "Size"
+          },
+          1,
+          "2 changed lines"
+        ]
+      ]
+    },
+    {
+      "kind": {
+        "type": "Changed"
+      },
+      "new_start": 1,
+      "path": "docs.txt",
+      "score": 0,
+      "signals": []
+    }
+  ],
+  "symbols": [
+    {
+      "change": {
+        "type": "SignatureChanged"
+      },
+      "name": "parse",
+      "path": "lib/parse.py",
+      "public": true
+    },
+    {
+      "change": {
+        "type": "BodyChanged"
+      },
+      "name": "login",
+      "path": "src/auth.py",
+      "public": true
+    }
+  ]
+}

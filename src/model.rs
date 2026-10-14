@@ -253,3 +253,28 @@ pub struct HunkRef {
     pub new_start: u32,
     pub score: u32,
 }
+
+impl Hunk {
+    /// Added and removed lines with their line number (new side for added, old side for removed).
+    pub fn changed(&self) -> Vec<(LineKind, u32, &str)> {
+        let (mut old, mut new) = (self.old_start, self.new_start);
+        let mut out = Vec::new();
+        for l in &self.lines {
+            match l.kind {
+                LineKind::Context => {
+                    old += 1;
+                    new += 1;
+                }
+                LineKind::Removed => {
+                    out.push((LineKind::Removed, old, l.text.as_str()));
+                    old += 1;
+                }
+                LineKind::Added => {
+                    out.push((LineKind::Added, new, l.text.as_str()));
+                    new += 1;
+                }
+            }
+        }
+        out
+    }
+}

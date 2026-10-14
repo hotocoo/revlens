@@ -1,0 +1,64 @@
+---
+source: tests/analyze_fixtures.rs
+expression: summary(&a)
+---
+{
+  "hunks": [
+    {
+      "kind": {
+        "from": {
+          "line": 1,
+          "path": "b.py"
+        },
+        "type": "Moved"
+      },
+      "new_start": 1,
+      "path": "a.py",
+      "score": 0,
+      "signals": [
+        [
+          {
+            "type": "Moved"
+          },
+          0,
+          "moved from b.py:1"
+        ]
+      ]
+    },
+    {
+      "kind": {
+        "from": {
+          "line": 1,
+          "path": "a.py"
+        },
+        "type": "Moved"
+      },
+      "new_start": 1,
+      "path": "b.py",
+      "score": 0,
+      "signals": [
+        [
+          {
+            "type": "Moved"
+          },
+          0,
+          "moved from a.py:1"
+        ]
+      ]
+    }
+  ],
+  "symbols": [
+    {
+      "change": {
+        "from": {
+          "line": 1,
+          "path": "a.py"
+        },
+        "type": "Moved"
+      },
+      "name": "helper",
+      "path": "b.py",
+      "public": true
+    }
+  ]
+}

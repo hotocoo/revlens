@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = ".revlens/config.toml";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub weights: Weights,
@@ -47,8 +47,19 @@ pub struct Patterns {
     pub generated_paths: Vec<String>,
     /// Path substrings marking test files.
     pub test_paths: Vec<String>,
-    /// Dependency manifests checked for new dependencies.
-    pub manifests: Vec<String>,
+    /// Path substrings of files where indentation carries meaning (whitespace-only edits there
+    /// are never demoted as formatting).
+    pub indent_sensitive: Vec<String>,
+    /// Name prefixes (on any dot-separated segment of a qualified name) marking test definitions.
+    pub test_symbols: Vec<String>,
+    /// Substrings counted per line in test files to detect dropped assertions.
+    pub assertions: Vec<String>,
+    /// Keys of package.json blocks that list dependencies.
+    pub dependency_sections: Vec<String>,
+    /// Line-leading keywords of error handling blocks; removing them weakens handling.
+    pub error_handling: Vec<String>,
+    /// Added handlers that swallow errors (whitespace-insensitive, line-leading).
+    pub weak_handlers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -60,6 +71,8 @@ pub struct Limits {
     pub moved_min_block: usize,
     /// Minimum AST nodes for a function to be considered by reuse-miss detection.
     pub reuse_min_nodes: usize,
+    /// Minimum AST nodes for a definition to be paired as a rename across unrelated files.
+    pub rename_min_nodes: usize,
     /// Files larger than this (bytes) are skipped by reuse-miss scanning.
     pub reuse_max_file_bytes: usize,
     /// Files with average line length above this are treated as minified and skipped.
@@ -79,17 +92,6 @@ pub struct Server {
     pub port: u16,
     /// Debounce for persisting the live session document, in milliseconds.
     pub persist_debounce_ms: u64,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            weights: Weights::default(),
-            patterns: Patterns::default(),
-            limits: Limits::default(),
-            server: Server::default(),
-        }
-    }
 }
 
 impl Default for Weights {
@@ -117,30 +119,84 @@ impl Default for Patterns {
     fn default() -> Self {
         Self {
             sensitive: strings(&[
-                "auth", "token", "secret", "password", "passwd", "credential", "crypto", "sql",
-                "migration", "eval(", "exec(", "subprocess", "pickle", "dangerouslysetinnerhtml",
-                "innerhtml", "permission", "session",
+                "auth",
+                "token",
+                "secret",
+                "password",
+                "passwd",
+                "credential",
+                "crypto",
+                "sql",
+                "migration",
+                "eval(",
+                "exec(",
+                "subprocess",
+                "pickle",
+                "dangerouslysetinnerhtml",
+                "innerhtml",
+                "permission",
+                "session",
             ]),
             suppressions: strings(&[
-                "@ts-ignore", "@ts-expect-error", "@ts-nocheck", "as any", "eslint-disable",
-                "# type: ignore", "# noqa", "# pragma: no cover", "# pylint: disable",
+                "@ts-ignore",
+                "@ts-expect-error",
+                "@ts-nocheck",
+                "as any",
+                "eslint-disable",
+                "# type: ignore",
+                "# noqa",
+                "# pragma: no cover",
+                "# pylint: disable",
             ]),
             infra_paths: strings(&[
-                ".github/workflows/", ".gitlab-ci", "dockerfile", "docker-compose", ".env",
-                "makefile", "terraform", ".circleci/", "jenkinsfile", "helm/", "k8s/",
+                ".github/workflows/",
+                ".gitlab-ci",
+                "dockerfile",
+                "docker-compose",
+                ".env",
+                "makefile",
+                "terraform",
+                ".circleci/",
+                "jenkinsfile",
+                "helm/",
+                "k8s/",
             ]),
             generated_paths: strings(&[
-                "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "uv.lock",
-                "pipfile.lock", "cargo.lock", ".min.js", ".snap", "/dist/", "/build/",
-                "_pb2.py", ".generated.", "/vendor/",
+                "package-lock.json",
+                "yarn.lock",
+                "pnpm-lock.yaml",
+                "poetry.lock",
+                "uv.lock",
+                "pipfile.lock",
+                "cargo.lock",
+                ".min.js",
+                ".snap",
+                "/dist/",
+                "/build/",
+                "_pb2.py",
+                ".generated.",
+                "/vendor/",
             ]),
             test_paths: strings(&[
-                "test_", "_test.", ".test.", ".spec.", "/tests/", "/test/", "/__tests__/",
+                "/test_",
+                "_test.",
+                ".test.",
+                ".spec.",
+                "/tests/",
+                "/test/",
+                "/__tests__/",
                 "conftest.py",
             ]),
-            manifests: strings(&[
-                "package.json", "pyproject.toml", "requirements.txt", "requirements-dev.txt",
-                "setup.cfg", "setup.py", "pipfile",
+            indent_sensitive: strings(&[".py", ".pyi", ".yml", ".yaml", "makefile", ".mk"]),
+            test_symbols: strings(&["test_", "Test"]),
+            assertions: strings(&["assert", "expect("]),
+            dependency_sections: strings(&["dependencies", "devDependencies", "peerDependencies"]),
+            error_handling: strings(&["try", "catch", "except"]),
+            weak_handlers: strings(&[
+                "except:",
+                "except Exception: pass",
+                "catch {}",
+                "catch (e) {}",
             ]),
         }
     }
@@ -152,6 +208,7 @@ impl Default for Limits {
             moved_line_pct: 90,
             moved_min_block: 3,
             reuse_min_nodes: 30,
+            rename_min_nodes: 30,
             reuse_max_file_bytes: 500_000,
             minified_avg_line: 300,
             rename_similarity: 50,
@@ -198,9 +255,13 @@ mod tests {
 
     #[test]
     fn partial_override_keeps_other_defaults() {
-        let c = Config::parse("[weights]\ntest_removed = 99\n[server]\nport = 4100\n").expect("parse");
+        let c =
+            Config::parse("[weights]\ntest_removed = 99\n[server]\nport = 4100\n").expect("parse");
         assert_eq!(c.weights.test_removed, 99);
-        assert_eq!(c.weights.public_sig_changed, Weights::default().public_sig_changed);
+        assert_eq!(
+            c.weights.public_sig_changed,
+            Weights::default().public_sig_changed
+        );
         assert_eq!(c.server.port, 4100);
         assert_eq!(c.server.bind, "127.0.0.1");
     }
