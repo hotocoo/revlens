@@ -14,6 +14,29 @@ pub struct Config {
     pub patterns: Patterns,
     pub limits: Limits,
     pub server: Server,
+    pub intent: Intent,
+}
+
+/// Intent document parsing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Intent {
+    /// Heading words (case-insensitive, whole-word) that introduce acceptance criteria lists.
+    pub headings: Vec<String>,
+}
+
+impl Default for Intent {
+    fn default() -> Self {
+        Self {
+            headings: strings(&[
+                "acceptance",
+                "criteria",
+                "requirements",
+                "definition of done",
+                "AC",
+            ]),
+        }
+    }
 }
 
 /// Points added to a hunk's score per rule.
@@ -92,6 +115,12 @@ pub struct Server {
     pub port: u16,
     /// Debounce for persisting the live session document, in milliseconds.
     pub persist_debounce_ms: u64,
+    /// Largest accepted WebSocket message, in bytes.
+    pub max_ws_message_bytes: usize,
+    /// Session document size above which clients are refused, in bytes.
+    pub max_doc_bytes: usize,
+    /// Concurrent WebSocket connections allowed.
+    pub max_ws_connections: usize,
 }
 
 impl Default for Weights {
@@ -223,6 +252,9 @@ impl Default for Server {
             share_bind: "0.0.0.0".into(),
             port: 0,
             persist_debounce_ms: 1000,
+            max_ws_message_bytes: 1 << 20,
+            max_doc_bytes: 8 << 20,
+            max_ws_connections: 64,
         }
     }
 }

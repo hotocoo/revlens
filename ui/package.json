@@ -1,0 +1,19 @@
+{
+  "name": "lens-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "preact": "10.29.8",
+    "y-websocket": "3.1.0",
+    "yjs": "13.6.33"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

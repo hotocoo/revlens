@@ -1,14 +1,16 @@
 #![deny(clippy::unwrap_used)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use revlens::analyze;
 use revlens::config::Config;
 use revlens::git::{Repo, parse_range};
 use revlens::model::{Analysis, Hunk, HunkKind};
+use revlens::session_cli::{self, Source};
+use revlens::{conformance, live, server, time};
 
 #[derive(Parser)]
 #[command(
@@ -34,6 +36,56 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Serve the live review UI for a change.
+    Review {
+        /// `base..head`; optional with --pr.
+        #[arg(required_unless_present = "pr")]
+        range: Option<String>,
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Intent document whose list items are the acceptance criteria.
+        #[arg(long, conflicts_with = "pr")]
+        intent: Option<PathBuf>,
+        /// Take the range and criteria from this GitHub PR (needs `gh`).
+        #[arg(long)]
+        pr: Option<u32>,
+        /// Agent assumptions JSONL (default: .revlens/assumptions.jsonl).
+        #[arg(long)]
+        assumptions: Option<PathBuf>,
+        /// Listen on all interfaces so teammates can join.
+        #[arg(long)]
+        share: bool,
+        #[arg(long)]
+        port: Option<u16>,
+        /// Do not open a browser.
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Print the conformance record of a review session.
+    Export {
+        /// `base..head`; optional with --pr.
+        #[arg(required_unless_present = "pr")]
+        range: Option<String>,
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        #[arg(long, conflicts_with = "pr")]
+        intent: Option<PathBuf>,
+        #[arg(long)]
+        pr: Option<u32>,
+        #[arg(long)]
+        assumptions: Option<PathBuf>,
+        #[arg(long, value_enum, default_value = "md")]
+        format: Format,
+        /// Write to this file instead of stdout.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Format {
+    Md,
+    Json,
 }
 
 fn main() -> ExitCode {
@@ -60,6 +112,90 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 print!("{}", render(&range, &analysis));
             }
+            Ok(())
+        }
+        Cmd::Review {
+            range,
+            repo,
+            intent,
+            pr,
+            assumptions,
+            share,
+            port,
+            no_open,
+        } => {
+            let src = Source {
+                repo: &repo,
+                range: range.as_deref(),
+                intent: intent.as_deref(),
+                pr,
+                assumptions: assumptions.as_deref(),
+            };
+            review(&src, share, port, no_open)
+        }
+        Cmd::Export {
+            range,
+            repo,
+            intent,
+            pr,
+            assumptions,
+            format,
+            out,
+        } => {
+            let src = Source {
+                repo: &repo,
+                range: range.as_deref(),
+                intent: intent.as_deref(),
+                pr,
+                assumptions: assumptions.as_deref(),
+            };
+            export(&src, format, out.as_deref())
+        }
+    }
+}
+
+fn review(src: &Source, share: bool, port: Option<u16>, no_open: bool) -> Result<()> {
+    let (repo, analysis) = session_cli::load(src)?;
+    let cfg = Config::load(repo.root())?;
+    let path = session_cli::session_path(&repo, &analysis);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    println!("Session file: {}", path.display());
+    println!("Hint: add .revlens/sessions/ to .gitignore.");
+    let rt = tokio::runtime::Runtime::new().context("starting async runtime")?;
+    rt.block_on(server::serve(analysis, path, &cfg, share, port, |url| {
+        if !no_open {
+            session_cli::open_browser(url);
+        }
+    }))
+}
+
+fn export(src: &Source, format: Format, out: Option<&Path>) -> Result<()> {
+    let (repo, analysis) = session_cli::load(src)?;
+    let path = session_cli::session_path(&repo, &analysis);
+    if !path.exists() {
+        eprintln!(
+            "no session file at {}; exporting with empty state",
+            path.display()
+        );
+    }
+    let state = live::Session::open(&path)?.snapshot()?;
+    let orphans = conformance::orphaned(&analysis, &state);
+    if orphans > 0 {
+        eprintln!(
+            "warning: {orphans} mappings refer to criteria or hunks not in this analysis (wrong --intent?)"
+        );
+    }
+    let rec = conformance::build(&analysis, &state, time::now_rfc3339());
+    let text = match format {
+        Format::Md => conformance::render_markdown(&rec),
+        Format::Json => conformance::render_json(&rec)?,
+    };
+    match out {
+        Some(p) => std::fs::write(p, text).with_context(|| format!("writing {}", p.display())),
+        None => {
+            print!("{text}");
             Ok(())
         }
     }
