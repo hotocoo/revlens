@@ -12,13 +12,15 @@ use crate::config::{Config, Limits};
 use crate::git::Repo;
 use crate::lang::{self, Def};
 use crate::model::{Change, FileDiff, FileStatus, HunkId, Loc, SymKind, SymbolChange};
-use crate::risk;
+use crate::{fingerprint, risk};
 
 /// Files read per `git cat-file --batch` call; bounds peak memory to batch x `reuse_max_file_bytes`.
 const BATCH_FILES: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Miss {
+    /// Shingle similarity in percent; 100 for an identical shape.
+    pub similarity: u32,
     /// Qualified name of the added function.
     pub name: String,
     /// Qualified name of the existing function with the same shape.
@@ -28,8 +30,13 @@ pub struct Miss {
 
 impl Miss {
     pub fn reason(&self) -> String {
+        let how = if self.similarity >= 100 {
+            "duplicates".to_string()
+        } else {
+            format!("is {}% similar to", self.similarity)
+        };
         format!(
-            "new '{}' duplicates existing '{}' at {}:{}",
+            "new '{}' {how} existing '{}' at {}:{}",
             self.name, self.existing, self.at.path, self.at.line
         )
     }
@@ -47,6 +54,7 @@ struct Added {
     hunk: HunkId,
     name: String,
     shape: u64,
+    shingles: Vec<u64>,
 }
 
 /// Added (not moved, not renamed) functions of `head`, keyed by shape, with the hunk to flag.
@@ -68,6 +76,7 @@ fn added_defs(
                 hunk,
                 name: s.name.clone(),
                 shape: def.shape,
+                shingles: def.shingles.clone(),
             })
         })
         .collect()
@@ -104,6 +113,12 @@ impl Touched {
                 || self.lines.contains(&(p.to_string(), d.start_line))
         })
     }
+}
+
+/// Jaccard similarity is at most `min/max` of the set sizes; skip pairs that cannot reach `pct`.
+fn size_allows(a: &[u64], b: &[u64], pct: u32) -> bool {
+    let (lo, hi) = (a.len().min(b.len()), a.len().max(b.len()));
+    lo * 100 >= hi * pct as usize
 }
 
 fn skip_file(text: &str, limits: &Limits) -> bool {
@@ -147,35 +162,47 @@ pub fn scan(
         .filter(|p| risk::matching(p, &cfg.patterns.generated_paths).is_empty())
         .collect();
 
+    // Best match per added function: highest similarity, then first seen in tree order.
     let mut hits: Vec<Option<Miss>> = vec![None; added.len()];
+    let near = limits.near_duplicate_percent;
     for chunk in paths.chunks(BATCH_FILES) {
-        for (path, text) in repo.read_blobs(merge_base, chunk)? {
-            let (Some(text), Some(lang)) = (text, lang::detect(&path)) else {
-                continue;
+        let blobs = repo.read_blobs(merge_base, chunk)?;
+        let parsed = crate::par::map(&blobs, limits.threads, |(path, text)| {
+            let (Some(text), Some(lang)) = (text.as_deref(), lang::detect(path)) else {
+                return Vec::new();
             };
-            if skip_file(&text, limits) {
-                continue;
+            if skip_file(text, limits) {
+                return Vec::new();
             }
-            let Ok(defs) = lang::defs(lang, &text) else {
-                continue;
-            };
-            let key = renamed.get(path.as_str()).copied().unwrap_or(&path);
+            lang::defs(lang, text).unwrap_or_default()
+        });
+        for ((path, _), defs) in blobs.iter().zip(parsed) {
+            let key = renamed.get(path.as_str()).copied().unwrap_or(path);
             for d in defs.iter().filter(|d| eligible(d, limits)) {
-                let Some(idxs) = by_shape.get(&d.shape) else {
-                    continue;
-                };
-                if touched.holds([&path, key], d) {
+                if touched.holds([path, key], d) {
                     continue;
                 }
-                for &i in idxs {
-                    hits[i].get_or_insert_with(|| Miss {
-                        name: added[i].name.clone(),
-                        existing: d.qualified.clone(),
-                        at: Loc {
-                            path: path.clone(),
-                            line: d.start_line,
-                        },
-                    });
+                for (i, a) in added.iter().enumerate() {
+                    let sim = if by_shape.get(&d.shape).is_some_and(|ix| ix.contains(&i)) {
+                        100
+                    } else if near > 0 && near < 100 && size_allows(&a.shingles, &d.shingles, near)
+                    {
+                        fingerprint::similarity(&a.shingles, &d.shingles)
+                    } else {
+                        0
+                    };
+                    let better = hits[i].as_ref().is_none_or(|m| sim > m.similarity);
+                    if sim >= near.min(100) && sim > 0 && better {
+                        hits[i] = Some(Miss {
+                            similarity: sim,
+                            name: a.name.clone(),
+                            existing: d.qualified.clone(),
+                            at: Loc {
+                                path: path.clone(),
+                                line: d.start_line,
+                            },
+                        });
+                    }
                 }
             }
         }
@@ -196,6 +223,7 @@ mod tests {
     #[test]
     fn reason_names_both_functions_and_location() {
         let m = Miss {
+            similarity: 100,
             name: "foo".into(),
             existing: "bar".into(),
             at: Loc {
@@ -207,6 +235,21 @@ mod tests {
             m.reason(),
             "new 'foo' duplicates existing 'bar' at a/b.py:12"
         );
+        let near = Miss {
+            similarity: 81,
+            ..m
+        };
+        assert_eq!(
+            near.reason(),
+            "new 'foo' is 81% similar to existing 'bar' at a/b.py:12"
+        );
+    }
+
+    #[test]
+    fn size_bound_rejects_pairs_that_cannot_reach_the_threshold() {
+        assert!(size_allows(&[1, 2, 3, 4], &[1, 2, 3], 75));
+        assert!(!size_allows(&[1, 2, 3, 4], &[1, 2], 75));
+        assert!(size_allows(&[], &[], 75));
     }
 
     #[test]

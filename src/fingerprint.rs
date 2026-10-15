@@ -98,6 +98,83 @@ fn unnamed_walk(n: Node, src: &[u8], name: &[u8], h: &mut Fnv) {
     }
 }
 
+/// Tokens per shingle in [`shingles`].
+const SHINGLE: usize = 4;
+
+/// Sorted, deduplicated hashes of every run of [`SHINGLE`] pre-order node tokens (identifiers
+/// and literals abstracted as in [`shape`], comments skipped). Two definitions whose sets have a
+/// high Jaccard similarity are near duplicates even when statements were added or changed.
+pub fn shingles(node: Node, src: &[u8]) -> Vec<u64> {
+    let mut toks = Vec::new();
+    tokens(node, src, &mut toks);
+    let mut out: Vec<u64> = if toks.len() < SHINGLE {
+        vec![
+            toks.iter()
+                .fold(Fnv::default(), |mut h, t| *h.field(&t.to_le_bytes()))
+                .finish(),
+        ]
+    } else {
+        toks.windows(SHINGLE)
+            .map(|w| {
+                let mut h = Fnv::default();
+                for t in w {
+                    h.field(&t.to_le_bytes());
+                }
+                h.finish()
+            })
+            .collect()
+    };
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+fn tokens(n: Node, src: &[u8], out: &mut Vec<u64>) {
+    if is_comment(n) {
+        return;
+    }
+    let kind = n.kind();
+    let mut h = Fnv::default();
+    if LITERAL_KINDS.contains(&kind) {
+        out.push(h.field(kind.as_bytes()).finish());
+        return;
+    }
+    if IDENT_KINDS.contains(&kind) {
+        out.push(h.field(b"$").finish());
+        return;
+    }
+    h.field(kind.as_bytes());
+    if n.child_count() == 0 {
+        h.field(text(n, src));
+    }
+    out.push(h.finish());
+    let mut c = n.walk();
+    for ch in n.children(&mut c) {
+        tokens(ch, src, out);
+    }
+}
+
+/// Jaccard similarity of two sorted, deduplicated sets, in whole percent (rounded down).
+pub fn similarity(a: &[u64], b: &[u64]) -> u32 {
+    let (mut i, mut j, mut both) = (0, 0, 0usize);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                both += 1;
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    let union = a.len() + b.len() - both;
+    if union == 0 {
+        return 0;
+    }
+    u32::try_from(both * 100 / union).unwrap_or(100)
+}
+
 /// Rename-, whitespace- and comment-insensitive structure hash, with the node count.
 pub fn shape(node: Node, src: &[u8]) -> (u64, usize) {
     let mut st = Shape {
@@ -385,6 +462,20 @@ mod tests {
             go("package p\nfunc F(a int) string { return \"x\" }"),
             go("package p\nfunc G(b int) string { return \"yz\" }")
         );
+    }
+
+    #[test]
+    fn near_duplicates_score_high_and_unrelated_code_low() {
+        let sh = |s: &str| shingles(parse_py(s).root_node(), s.as_bytes());
+        let base = "def f(rows):\n    out = []\n    for r in rows:\n        if r.ok:\n            out.append(r.v * 2)\n    return out\n";
+        let edited = "def g(items):\n    res = []\n    for it in items:\n        if it.ok:\n            res.append(it.v * 3)\n        log(it)\n    return res\n";
+        let other = "def h(a, b):\n    while a < b:\n        a += 1\n    raise ValueError(a)\n";
+        assert_eq!(similarity(&sh(base), &sh(base)), 100);
+        let near = similarity(&sh(base), &sh(edited));
+        assert!((60..100).contains(&near), "{near}");
+        assert!(similarity(&sh(base), &sh(other)) < 40);
+        assert_eq!(similarity(&[], &[]), 0);
+        assert_eq!(sh("x").len(), 1, "short input still has one shingle");
     }
 
     #[test]

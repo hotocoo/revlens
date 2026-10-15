@@ -106,6 +106,13 @@ pub struct Limits {
     pub minified_avg_line: usize,
     /// Rename/copy similarity threshold passed to `git diff -M/-C` (percent).
     pub rename_similarity: u32,
+    /// Reuse-miss also flags existing functions at least this similar (percent, by AST
+    /// shingles); 100 keeps only identical shapes.
+    pub near_duplicate_percent: u32,
+    /// Worker threads for parsing (0 means one per core).
+    pub threads: usize,
+    /// Reuse analysis results from `.revlens/cache/` when the commits, config and version match.
+    pub cache_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -227,6 +234,7 @@ impl Default for Patterns {
                 "/test/",
                 "/__tests__/",
                 "conftest.py",
+                "/tests.rs",
             ]),
             indent_sensitive: strings(&[".py", ".pyi", ".yml", ".yaml", "makefile", ".mk"]),
             test_symbols: strings(&["test_", "Test"]),
@@ -258,6 +266,9 @@ impl Default for Limits {
             reuse_max_file_bytes: 500_000,
             minified_avg_line: 300,
             rename_similarity: 50,
+            near_duplicate_percent: 75,
+            threads: 0,
+            cache_enabled: true,
         }
     }
 }

@@ -321,3 +321,26 @@ fn post_creates_a_comment_then_edits_it() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn analysis_is_cached_per_commits_and_config() -> Result<()> {
+    let f = repo()?;
+    let d = f.dir.path();
+    let cache = d.join(".revlens/cache");
+    let first = run(&["analyze", &range(&f), "--json"], d)?;
+    assert!(first.status.success());
+    let entries = || std::fs::read_dir(&cache).map(|r| r.count()).unwrap_or(0);
+    assert_eq!(entries(), 1);
+    let again = run(&["analyze", &range(&f), "--json"], d)?;
+    assert_eq!(
+        again.stdout, first.stdout,
+        "cache hit returns the same analysis"
+    );
+    assert_eq!(entries(), 1);
+    run(&["analyze", &range(&f), "--no-reuse"], d)?;
+    assert_eq!(entries(), 2, "a different config is a different entry");
+    std::fs::remove_dir_all(&cache)?;
+    run(&["analyze", &range(&f), "--no-cache"], d)?;
+    assert_eq!(entries(), 0);
+    Ok(())
+}

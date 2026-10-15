@@ -1,3 +1,4 @@
 target/
 node_modules/
 .revlens/sessions/
+.revlens/cache/

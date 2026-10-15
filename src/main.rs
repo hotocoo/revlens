@@ -39,6 +39,9 @@ enum Cmd {
         /// Skip the scan for functions that duplicate existing code.
         #[arg(long)]
         no_reuse: bool,
+        /// Recompute the analysis instead of reading `.revlens/cache/`.
+        #[arg(long)]
+        no_cache: bool,
     },
     /// Serve the live review UI for a change.
     Review {
@@ -59,6 +62,9 @@ enum Cmd {
         /// Skip the scan for functions that duplicate existing code.
         #[arg(long)]
         no_reuse: bool,
+        /// Recompute the analysis instead of reading `.revlens/cache/`.
+        #[arg(long)]
+        no_cache: bool,
         /// Listen on all interfaces so teammates can join.
         #[arg(long)]
         share: bool,
@@ -85,6 +91,9 @@ enum Cmd {
         /// Skip the scan for functions that duplicate existing code.
         #[arg(long)]
         no_reuse: bool,
+        /// Recompute the analysis instead of reading `.revlens/cache/`.
+        #[arg(long)]
+        no_cache: bool,
         #[arg(long, value_enum, default_value = "md")]
         format: Format,
         /// Write to this file instead of stdout.
@@ -130,10 +139,12 @@ fn run(cli: Cli) -> Result<bool> {
             repo,
             json,
             no_reuse,
+            no_cache,
         } => {
             let repo = Repo::discover(&repo)?;
             let mut cfg = Config::load(repo.root())?;
             cfg.limits.reuse_enabled &= !no_reuse;
+            cfg.limits.cache_enabled &= !no_cache;
             let (base, head) = parse_range(&range)?;
             let analysis = analyze::run(&repo, &base, &head, &cfg)?;
             if json {
@@ -152,6 +163,7 @@ fn run(cli: Cli) -> Result<bool> {
             pr,
             assumptions,
             no_reuse,
+            no_cache,
             share,
             port,
             no_open,
@@ -163,6 +175,7 @@ fn run(cli: Cli) -> Result<bool> {
                 pr,
                 assumptions: assumptions.as_deref(),
                 no_reuse,
+                no_cache,
             };
             review(&src, share, port, no_open).map(|()| true)
         }
@@ -173,6 +186,7 @@ fn run(cli: Cli) -> Result<bool> {
             pr,
             assumptions,
             no_reuse,
+            no_cache,
             format,
             out,
             post,
@@ -186,6 +200,7 @@ fn run(cli: Cli) -> Result<bool> {
                 pr,
                 assumptions: assumptions.as_deref(),
                 no_reuse,
+                no_cache,
             };
             let gate = Gate {
                 post,
@@ -205,7 +220,7 @@ fn review(src: &Source, share: bool, port: Option<u16>, no_open: bool) -> Result
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     println!("Session file: {}", path.display());
-    println!("Hint: add .revlens/sessions/ to .gitignore.");
+    println!("Hint: add .revlens/sessions/ and .revlens/cache/ to .gitignore.");
     let rt = tokio::runtime::Runtime::new().context("starting async runtime")?;
     rt.block_on(server::serve(analysis, path, &cfg, share, port, |url| {
         if share {

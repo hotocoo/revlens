@@ -32,6 +32,9 @@ pub struct Def {
     pub unnamed: u64,
     pub nodes: usize,
     pub is_test: bool,
+    /// [`fingerprint::shingles`] of functions and methods (empty for other kinds), for
+    /// near-duplicate detection.
+    pub shingles: Vec<u64>,
 }
 
 pub fn detect(path: &str) -> Option<Lang> {
@@ -154,6 +157,11 @@ impl<'a> Walker<'a> {
             unnamed,
             nodes,
             is_test,
+            shingles: if matches!(kind, SymKind::Function | SymKind::Method) {
+                fingerprint::shingles(body, self.src)
+            } else {
+                Vec::new()
+            },
         });
     }
 }

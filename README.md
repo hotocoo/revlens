@@ -94,9 +94,9 @@ Pass the same range and the same `--intent`, `--pr`, or `--assumptions` to `expo
 
 | Command | Flags |
 | --- | --- |
-| `analyze <RANGE>` | `--repo <PATH>`, `--json`, `--no-reuse` |
-| `review [RANGE]` | `--repo`, `--intent <FILE>`, `--pr <N>`, `--assumptions <FILE>`, `--share`, `--port <N>`, `--no-open`, `--no-reuse` |
-| `export [RANGE]` | `--repo`, `--intent`, `--pr`, `--assumptions`, `--no-reuse`, `--format md\|json`, `--out <FILE>`, `--post`, `--fail-on <LIST>`, `--fail-on-score <N>` |
+| `analyze <RANGE>` | `--repo <PATH>`, `--json`, `--no-reuse`, `--no-cache` |
+| `review [RANGE]` | `--repo`, `--intent <FILE>`, `--pr <N>`, `--assumptions <FILE>`, `--share`, `--port <N>`, `--no-open`, `--no-reuse`, `--no-cache` |
+| `export [RANGE]` | `--repo`, `--intent`, `--pr`, `--assumptions`, `--no-reuse`, `--no-cache`, `--format md\|json`, `--out <FILE>`, `--post`, `--fail-on <LIST>`, `--fail-on-score <N>` |
 
 `RANGE` is optional with `--pr`. With both `--pr` and `--intent`, the range comes from the PR and the criteria from the file. `--post` needs `--pr`.
 
@@ -110,7 +110,7 @@ Each hunk gets points from rules. Every point has a reason shown next to the hun
 | `test_removed` | 30 | A test file is deleted, a test is removed, or assertions drop in a test file |
 | `new_dependency` | 25 | A dependency is added to `package.json`, `pyproject.toml`, `Pipfile`, `requirements*.txt`, `Cargo.toml` or `go.mod` (`// indirect` requirements excluded) |
 | `sensitive_area` | 20 | Path or added lines match `auth`, `token`, `secret`, `sql`, `eval(` and similar |
-| `reuse_miss` | 20 | An added function duplicates one that already exists in the base tree |
+| `reuse_miss` | 20 | An added function duplicates, or is at least `near_duplicate_percent` (75%) similar to, one that already exists in the base tree |
 | `suppression_added` | 15 | `@ts-ignore`, `as any`, `# type: ignore`, `# noqa`, `eslint-disable`, `#[allow(`, `//nolint` and similar are added (a marker that was already on a removed line of the same hunk does not count) |
 | `error_handling_weakened` | 15 | `try`/`catch`/`except` is removed, or a swallowing handler is added |
 | `infra_config` | 15 | CI, Docker, Terraform, Makefile and similar config changes |
@@ -118,6 +118,10 @@ Each hunk gets points from rules. Every point has a reason shown next to the hun
 | `size` | up to 10 | `min(size_cap, log2(changed lines))` |
 
 All weights, patterns and thresholds are configurable, see [Configuration](#configuration).
+
+Similarity for `reuse_miss` is the Jaccard overlap of 4-token runs of the two functions' syntax trees, with names and literals abstracted, so a copy that gained or lost a few statements is still found. An identical shape reads "duplicates"; a near one reads "is 82% similar to".
+
+Definitions are parsed on all cores (`limits.threads`). The analysis is cached in `.revlens/cache/`, keyed by the three commit shas, the effective configuration and the Lens version, so a hit is always current; `--no-cache` recomputes. Add `.revlens/cache/` to your `.gitignore`.
 
 ### Moved, renamed and format-only changes
 
@@ -227,7 +231,6 @@ Not in 0.1.0:
 1. MCP `record_assumption` tool for agents
 2. Re-anchoring reviews after a force-push
 3. Comment threads and cursors
-5. Near-duplicate detection, parallel analysis, caching
 7. Opt-in LLM intent parsing
 
 ## Contributing

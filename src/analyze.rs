@@ -9,7 +9,7 @@ use crate::git::Repo;
 use crate::lang::{self, Def};
 use crate::model::{Analysis, FileDiff, FileStatus, Hunk, HunkKind, Line, LineKind, Range};
 use crate::risk::Findings;
-use crate::{deps, patch, reuse, risk, symbols};
+use crate::{cache, deps, patch, reuse, risk, symbols};
 
 pub fn run(repo: &Repo, base: &str, head: &str, cfg: &Config) -> Result<Analysis> {
     let base = repo
@@ -21,6 +21,37 @@ pub fn run(repo: &Repo, base: &str, head: &str, cfg: &Config) -> Result<Analysis
     let merge_base = repo
         .merge_base(&base, &head)
         .context("finding merge base")?;
+    if !cfg.limits.cache_enabled {
+        return compute(repo, base, head, merge_base, cfg);
+    }
+    // Commits are immutable, so (shas, config, version) fully determine the analysis.
+    let config = toml::to_string(cfg).context("serializing config for the cache key")?;
+    let key = cache::key(
+        "analysis",
+        &[
+            base.as_bytes(),
+            head.as_bytes(),
+            merge_base.as_bytes(),
+            config.as_bytes(),
+        ],
+    );
+    if let Some(a) = cache::get::<Analysis>(repo.root(), &key) {
+        return Ok(a);
+    }
+    let a = compute(repo, base, head, merge_base, cfg)?;
+    if let Err(e) = cache::put(repo.root(), &key, &a) {
+        eprintln!("warning: not caching the analysis: {e:#}");
+    }
+    Ok(a)
+}
+
+fn compute(
+    repo: &Repo,
+    base: String,
+    head: String,
+    merge_base: String,
+    cfg: &Config,
+) -> Result<Analysis> {
     let sim = cfg.limits.rename_similarity;
 
     let mut files = repo.diff_files(&merge_base, &head, sim)?;
@@ -31,8 +62,15 @@ pub fn run(repo: &Repo, base: &str, head: &str, cfg: &Config) -> Result<Analysis
     let mut hunks = parse_hunks(&repo.diff_patch(&merge_base, &head, sim)?)?;
     copies_as_added(repo, &head, &mut files, &mut hunks)?;
 
-    let old = defs_at(repo, &merge_base, &files, |f| f.old_path.as_deref())?;
-    let new = defs_at(repo, &head, &files, |f| f.new_path.as_deref())?;
+    let threads = cfg.limits.threads;
+    let old = defs_at(
+        repo,
+        &merge_base,
+        &files,
+        |f| f.old_path.as_deref(),
+        threads,
+    )?;
+    let new = defs_at(repo, &head, &files, |f| f.new_path.as_deref(), threads)?;
     let symbols = symbols::diff(
         &files,
         &old,
@@ -128,6 +166,7 @@ fn defs_at(
     rev: &str,
     files: &[FileDiff],
     path_of: impl Fn(&FileDiff) -> Option<&str>,
+    threads: usize,
 ) -> Result<HashMap<String, Vec<Def>>> {
     let wanted: Vec<(String, crate::model::Lang)> = files
         .iter()
@@ -137,16 +176,19 @@ fn defs_at(
     let paths: Vec<String> = wanted.iter().map(|(p, _)| p.clone()).collect();
     let langs: HashMap<&str, crate::model::Lang> =
         wanted.iter().map(|(p, l)| (p.as_str(), *l)).collect();
+    let blobs = repo.read_blobs(rev, &paths)?;
+    let parsed = crate::par::map(&blobs, threads, |(path, text)| {
+        let lang = *langs.get(path.as_str())?;
+        Some(lang::defs(lang, text.as_deref()?))
+    });
     let mut out = HashMap::new();
-    for (path, text) in repo.read_blobs(rev, &paths)? {
-        let (Some(text), Some(&lang)) = (text, langs.get(path.as_str())) else {
-            continue;
-        };
-        match lang::defs(lang, &text) {
-            Ok(defs) => {
+    for ((path, _), defs) in blobs.into_iter().zip(parsed) {
+        match defs {
+            Some(Ok(defs)) => {
                 out.insert(path, defs);
             }
-            Err(e) => eprintln!("warning: skipping definitions of {path}: {e:#}"),
+            Some(Err(e)) => eprintln!("warning: skipping definitions of {path}: {e:#}"),
+            None => {}
         }
     }
     Ok(out)

@@ -44,11 +44,15 @@ impl Walker<'_> {
             }
             "struct_item" | "enum_item" | "union_item" => {
                 let name = self.field_text(d, "name");
-                let sig = self.sig(&[
+                let generics = self.sig(&[
                     d.child_by_field_name("type_parameters"),
                     find_kind(d, "where_clause"),
-                    d.child_by_field_name("body"),
                 ]);
+                let body = d
+                    .child_by_field_name("body")
+                    .map(|b| self.rs_members(b))
+                    .unwrap_or_default();
+                let sig = format!("{generics} {body}").trim().to_string();
                 self.push(d, d, name, owner, SymKind::Class, public, sig, in_test);
             }
             "type_item" => {
@@ -129,6 +133,21 @@ impl Walker<'_> {
         ]);
         let wh = find_kind(f, "where_clause").map(|w| self.text(w).to_string());
         [params, ret.unwrap_or_default(), wh.unwrap_or_default()]
+            .join(" ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Fields or variants without comments (doc edits are not signature changes).
+    fn rs_members(&self, body: Node) -> String {
+        let mut c = body.walk();
+        let parts: Vec<&str> = body
+            .children(&mut c)
+            .filter(|n| !n.kind().contains("comment"))
+            .map(|n| self.text(n))
+            .collect();
+        parts
             .join(" ")
             .split_whitespace()
             .collect::<Vec<_>>()

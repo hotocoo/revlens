@@ -502,3 +502,22 @@ fn go_new_dependency_and_exported_signature_change() {
     let g = in_file(&a, "m.go");
     assert!(g.iter().any(|h| has(h, &Rule::PublicSigChanged)), "{g:?}");
 }
+
+#[test]
+fn near_duplicate_is_a_reuse_miss_with_its_similarity() {
+    // PY_PARSE with one extra statement: not the same shape, still mostly the same code.
+    let near = "def read_items(items):\n    res = []\n    for it in items:\n        if it.get('good'):\n            res.append(it['n'] * 3)\n        else:\n            res.append(1)\n    log(res)\n    return res\n";
+    let a = run(&[("a.py", PY_PARSE)], &[("a.py", PY_PARSE), ("b.py", near)]);
+    let (_, reason) = reuse_signal(&a, "b.py").expect("near duplicate flagged");
+    assert!(
+        reason.starts_with("new 'read_items' is ")
+            && reason.contains("% similar to existing 'parse_rows' at a.py:1"),
+        "{reason}"
+    );
+    let fx = common::fixture(&[("a.py", PY_PARSE)], &[("a.py", PY_PARSE), ("b.py", near)])
+        .expect("fixture");
+    let mut cfg = revlens::config::Config::default();
+    cfg.limits.near_duplicate_percent = 100;
+    let exact_only = common::analyze_with(&fx, &cfg).expect("analyze");
+    assert!(reuse_signal(&exact_only, "b.py").is_none());
+}

@@ -23,6 +23,8 @@ pub struct Source<'a> {
     pub assumptions: Option<&'a Path>,
     /// Skip the duplicate-code scan (`--no-reuse`).
     pub no_reuse: bool,
+    /// Recompute instead of reading the analysis cache (`--no-cache`).
+    pub no_cache: bool,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -50,6 +52,7 @@ pub fn load(src: &Source) -> Result<(Repo, Analysis)> {
     let repo = Repo::discover(src.repo)?;
     let mut cfg = Config::load(repo.root())?;
     cfg.limits.reuse_enabled &= !src.no_reuse;
+    cfg.limits.cache_enabled &= !src.no_cache;
     let pr = src.pr.map(|n| fetch_pr(&repo, n)).transpose()?;
     let (base, head) = choose_range(src.range, pr.as_ref())?;
     let mut analysis = analyze::run(&repo, &base, &head, &cfg)?;

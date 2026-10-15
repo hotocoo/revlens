@@ -2,6 +2,7 @@
 //! Lens: intent-aware, risk-ranked, live multi-reviewer code review.
 
 pub mod analyze;
+pub mod cache;
 pub mod config;
 pub mod conformance;
 pub mod deps;
@@ -12,6 +13,7 @@ pub mod intent;
 pub mod lang;
 pub mod live;
 pub mod model;
+pub mod par;
 pub mod patch;
 pub mod reuse;
 pub mod risk;

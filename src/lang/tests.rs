@@ -208,7 +208,10 @@ use std::fmt;
 
 pub fn add(a: i32, b: i32) -> i32 { a + b }
 fn private<T: Clone>(x: T) -> T where T: Copy { x }
-pub struct Point<T> { x: T }
+pub struct Point<T> {
+    /// doc
+    x: T,
+}
 enum Shape { A, B }
 pub type Id = u64;
 pub trait Area: fmt::Debug { fn area(&self) -> f64; fn unit(&self) {} }
@@ -255,6 +258,7 @@ fn rust_defs() {
     );
     assert_eq!(d[0].signature, "(a: i32, b: i32) -> i32");
     assert_eq!(d[1].signature, "<T: Clone> (x: T) -> T where T: Copy");
+    assert_eq!(d[2].signature, "<T> { x: T , }");
     assert_eq!((d[0].start_line, d[0].end_line), (4, 4));
     assert!(d[13].is_test && !d[0].is_test);
     assert_eq!(detect("src/main.rs"), Some(Lang::Rust));

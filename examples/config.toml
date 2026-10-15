@@ -43,6 +43,7 @@ generated_paths = [
 # Path substrings marking test files.
 test_paths = [
     "/test_", "_test.", ".test.", ".spec.", "/tests/", "/test/", "/__tests__/", "conftest.py",
+    "/tests.rs",
 ]
 # Files where indentation carries meaning (whitespace-only edits are never demoted as formatting).
 indent_sensitive = [".py", ".pyi", ".yml", ".yaml", "makefile", ".mk"]
@@ -72,6 +73,14 @@ reuse_max_file_bytes = 500000
 minified_avg_line = 300
 # Rename and copy similarity threshold passed to git diff -M/-C, in percent.
 rename_similarity = 50
+# Reuse-miss also flags existing functions at least this similar, in percent (AST shingles);
+# 100 keeps only identical shapes.
+near_duplicate_percent = 75
+# Worker threads for parsing; 0 means one per core.
+threads = 0
+# Reuse analysis results from .revlens/cache/ when the commits, config and version match
+# (--no-cache turns it off).
+cache_enabled = true
 
 [server]
 # Address used without --share.
