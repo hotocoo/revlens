@@ -77,6 +77,14 @@ enum Cmd {
         #[arg(long)]
         no_open: bool,
     },
+    /// Serve the `record_assumption` MCP tool on stdio for coding agents.
+    Mcp {
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Assumptions JSONL to append to (default: .revlens/assumptions.jsonl).
+        #[arg(long)]
+        assumptions: Option<PathBuf>,
+    },
     /// Print the conformance record of a review session.
     Export {
         /// `base..head`; optional with --pr.
@@ -160,6 +168,19 @@ fn run(cli: Cli) -> Result<bool> {
             } else {
                 print!("{}", render(&range, &analysis));
             }
+            Ok(true)
+        }
+        Cmd::Mcp { repo, assumptions } => {
+            let repo = Repo::discover(&repo)?;
+            let cfg = Config::load(repo.root())?;
+            let file =
+                assumptions.unwrap_or_else(|| repo.root().join(".revlens/assumptions.jsonl"));
+            let limits = revlens::mcp::Limits {
+                max_text_chars: cfg.mcp.max_text_chars,
+                max_agent_chars: cfg.mcp.max_agent_chars,
+            };
+            let server = revlens::mcp::Server::new(repo.root(), file, limits);
+            server.serve(std::io::stdin().lock(), std::io::stdout().lock())?;
             Ok(true)
         }
         Cmd::Review {

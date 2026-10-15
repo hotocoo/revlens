@@ -96,6 +96,7 @@ Pass the same range and the same `--intent`, `--pr`, or `--assumptions` to `expo
 | --- | --- |
 | `analyze <RANGE>` | `--repo <PATH>`, `--json`, `--no-reuse`, `--no-cache` |
 | `review [RANGE]` | `--repo`, `--intent <FILE>`, `--pr <N>`, `--assumptions <FILE>`, `--share`, `--port <N>`, `--no-open`, `--no-reuse`, `--no-cache`, `--llm-intent` |
+| `mcp` | `--repo`, `--assumptions <FILE>` |
 | `export [RANGE]` | `--repo`, `--intent`, `--pr`, `--assumptions`, `--no-reuse`, `--no-cache`, `--llm-intent`, `--format md\|json`, `--out <FILE>`, `--post`, `--fail-on <LIST>`, `--fail-on-score <N>` |
 
 `RANGE` is optional with `--pr`. With both `--pr` and `--intent`, the range comes from the PR and the criteria from the file. `--post` needs `--pr`.
@@ -179,6 +180,12 @@ Coding agents can record what they assumed by appending one JSON object per line
 
 Only `text` is required; `agent`, `path`, `line` and `at` are optional. A missing file means no assumptions; a malformed line is an error that names the line.
 
+Agents that speak the Model Context Protocol can record assumptions through a tool instead. `revlens mcp` serves one tool, `record_assumption` (`text`, optional `agent`, `path`, `line`), on stdio and appends to the same file with `at` set. Input is checked first: `text` is required and capped (`mcp.max_text_chars`), `path` must be an existing repository-relative file without `..`, and `line` needs `path`. For Claude Code, add it to `.mcp.json` in the repository:
+
+```json
+{ "mcpServers": { "revlens": { "command": "revlens", "args": ["mcp"] } } }
+```
+
 ## Conformance record
 
 `revlens export` prints Markdown (default) or JSON (`--format json`, schema version 1) with:
@@ -244,7 +251,6 @@ Lens does not replace an AI reviewer: it gives the humans (and the AI's output) 
 
 Not in 0.1.0:
 
-1. MCP `record_assumption` tool for agents
 2. Re-anchoring reviews after a force-push
 3. Comment threads and cursors
 

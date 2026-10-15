@@ -15,6 +15,26 @@ pub struct Config {
     pub limits: Limits,
     pub server: Server,
     pub intent: Intent,
+    pub mcp: Mcp,
+}
+
+/// `revlens mcp` limits on what agents may record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Mcp {
+    /// Longest assumption text accepted, in characters.
+    pub max_text_chars: usize,
+    /// Longest agent name accepted, in characters.
+    pub max_agent_chars: usize,
+}
+
+impl Default for Mcp {
+    fn default() -> Self {
+        Self {
+            max_text_chars: 2000,
+            max_agent_chars: 64,
+        }
+    }
 }
 
 /// Intent document parsing.

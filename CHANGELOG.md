@@ -12,6 +12,7 @@ All notable changes are listed here. The format follows Keep a Changelog and the
 - Parsing runs on all cores (`limits.threads`); analyses are cached in `.revlens/cache/` (`--no-cache`, `limits.cache_enabled`).
 - Rust struct and enum signatures ignore comments; `/tests.rs` counts as a test path.
 - `--llm-intent`: criteria extracted by a configured command (`intent.llm_command`), cached so `review` and `export` agree.
+- `revlens mcp`: MCP stdio server with a validated `record_assumption` tool for coding agents.
 - `--intent` and `--pr` can be combined: range from the PR, criteria from the file.
 
 ## 0.1.0

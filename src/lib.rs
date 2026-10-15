@@ -13,6 +13,7 @@ pub mod intent;
 pub mod lang;
 pub mod live;
 pub mod llm_intent;
+pub mod mcp;
 pub mod model;
 pub mod par;
 pub mod patch;

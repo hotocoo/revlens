@@ -118,3 +118,9 @@ llm_timeout_secs = 120
 llm_max_criteria = 50
 # Longest criterion accepted, in characters.
 llm_max_chars = 500
+
+[mcp]
+# Longest assumption text `revlens mcp` accepts from an agent, in characters.
+max_text_chars = 2000
+# Longest agent name accepted, in characters.
+max_agent_chars = 64
