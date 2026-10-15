@@ -1,5 +1,5 @@
 import type { Analysis, Hunk } from "./types";
-import type { Session } from "./session";
+import { readComment, type Session } from "./session";
 
 /** Moved, format-only and generated hunks need neither criterion nor reviewer (mirrors conformance.rs). */
 export function isDemoted(h: Hunk): boolean {
@@ -14,6 +14,8 @@ export type Derived = {
   reviewedCount: number;
   scopeCreep: number;
   missingWork: string[];
+  /** Unresolved thread count per hunk. */
+  openThreads: Map<string, number>;
 };
 
 export function derive(a: Analysis, s: Session): Derived {
@@ -28,8 +30,14 @@ export function derive(a: Analysis, s: Session): Derived {
     (critsByHunk.get(hunk) ?? critsByHunk.set(hunk, []).get(hunk))?.push(crit);
   }
   const mappedHunks = new Set(critsByHunk.keys());
+  const openThreads = new Map<string, number>();
+  for (const [id, raw] of s.comments.entries()) {
+    const c = readComment(raw);
+    if (c && !c.parent && !s.resolved.has(id)) openThreads.set(c.hunk, (openThreads.get(c.hunk) ?? 0) + 1);
+  }
   return {
     mappedHunks,
+    openThreads,
     hunksByCrit,
     critsByHunk,
     metCount: a.criteria.filter((c) => s.status.get(c.id) === "Met").length,

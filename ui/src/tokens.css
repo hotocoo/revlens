@@ -1,0 +1,149 @@
+/* Design tokens. Every color, size, radius, shadow and duration the UI uses is defined here. */
+
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/geist.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+
+  /* Neutrals: cool paper and graphite ink. */
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --sunken: #eceef2;
+  --line: #e1e4e9;
+  --line-strong: #c9ced6;
+  --ink: #111418;
+  --ink-2: #3a414c;
+  --ink-3: #5a6371;
+
+  /* The one accent: cobalt. Used for selection, focus and primary actions only. */
+  --accent: #2f55d4;
+  --accent-hover: #2647b8;
+  --accent-ink: #ffffff;
+  --accent-soft: rgb(47 85 212 / 0.09);
+  --accent-line: rgb(47 85 212 / 0.35);
+
+  /* Semantic: risk bands, criterion outcomes, diff. */
+  --risk-hi: #c2410c;
+  --risk-hi-soft: rgb(194 65 12 / 0.1);
+  --risk-mid: #a15c07;
+  --risk-mid-soft: rgb(161 92 7 / 0.1);
+  --risk-lo: #8a93a3;
+  --ok: #15803d;
+  --ok-soft: rgb(21 128 61 / 0.1);
+  --bad: #b91c1c;
+  --bad-soft: rgb(185 28 28 / 0.09);
+  --add-bg: #e8f6ed;
+  --add-fg: #135c2e;
+  --add-mark: #2f9e5a;
+  --del-bg: #fcebeb;
+  --del-fg: #9b1c1c;
+  --del-mark: #d64545;
+
+  --scrim: rgb(12 15 20 / 0.42);
+  --shadow-1: 0 1px 0 rgb(16 20 28 / 0.03), 0 1px 2px rgb(16 20 28 / 0.06);
+  --shadow-2: 0 1px 2px rgb(16 20 28 / 0.05), 0 6px 16px -6px rgb(16 20 28 / 0.12);
+  --shadow-pop: 0 0 0 1px var(--line), 0 18px 40px -12px rgb(16 20 28 / 0.28);
+
+  /* Type: Geist for interface, Geist Mono for code, paths and numbers that align. */
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --t-2xs: 11px;
+  --t-xs: 12px;
+  --t-sm: 13px;
+  --t-md: 14px;
+  --t-lg: 16px;
+  --t-xl: 20px;
+  --t-2xl: 30px;
+
+  /* 4px grid. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+
+  --r-xs: 4px;
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+
+  --rail: 328px;
+  --bar-h: 60px;
+  --content-max: 1080px;
+
+  /* Motion. A soft spring (about 3% overshoot) for things that move into place, a fast
+     ease-out for state changes. One media query below turns all of it off. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: linear(0, 0.063 2.9%, 0.235 6.2%, 0.56 12.4%, 0.818 19%, 0.954 26%, 1.019 33.5%, 1.031 40%, 1.018 50%, 1.003 64%, 1);
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --dur-3: 420ms;
+  --stagger: 38ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0c0e11;
+    --surface: #14171c;
+    --surface-2: #191d23;
+    --sunken: #0f1215;
+    --line: #252a32;
+    --line-strong: #343b46;
+    --ink: #eceef2;
+    --ink-2: #c0c6d0;
+    --ink-3: #8f98a6;
+
+    --accent: #85a2ff;
+    --accent-hover: #a3b9ff;
+    --accent-ink: #0a1642;
+    --accent-soft: rgb(133 162 255 / 0.12);
+    --accent-line: rgb(133 162 255 / 0.4);
+
+    --risk-hi: #ff8f5e;
+    --risk-hi-soft: rgb(255 143 94 / 0.12);
+    --risk-mid: #e5b54a;
+    --risk-mid-soft: rgb(229 181 74 / 0.12);
+    --risk-lo: #6b7482;
+    --ok: #57d68a;
+    --ok-soft: rgb(87 214 138 / 0.12);
+    --bad: #ff8080;
+    --bad-soft: rgb(255 128 128 / 0.12);
+    --add-bg: #10291a;
+    --add-fg: #8fe2ab;
+    --add-mark: #3fb56e;
+    --del-bg: #2d1416;
+    --del-fg: #ffa3a3;
+    --del-mark: #e05a5a;
+
+    --scrim: rgb(0 0 0 / 0.6);
+    --shadow-1: 0 1px 0 rgb(0 0 0 / 0.3);
+    --shadow-2: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -8px rgb(0 0 0 / 0.55);
+    --shadow-pop: 0 0 0 1px var(--line-strong), 0 24px 48px -12px rgb(0 0 0 / 0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0.01ms;
+    --dur-2: 0.01ms;
+    --dur-3: 0.01ms;
+    --stagger: 0ms;
+  }
+}

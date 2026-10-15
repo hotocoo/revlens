@@ -14,5 +14,14 @@ await build({
   loader: { ".css": "css" },
   legalComments: "none",
 });
-await build({ entryPoints: { app: "src/style.css" }, outdir: "dist", minify: true });
+// Fonts are emitted as /geist.woff2 and /geist-mono.woff2; src/server.rs embeds and serves them.
+await build({
+  entryPoints: { app: "src/style.css" },
+  outdir: "dist",
+  bundle: true,
+  minify: true,
+  loader: { ".woff2": "file" },
+  assetNames: "[name]",
+  publicPath: "/",
+});
 await copyFile("src/index.html", "dist/index.html");

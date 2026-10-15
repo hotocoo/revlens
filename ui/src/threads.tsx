@@ -1,6 +1,7 @@
+import { IconCircleCheck, IconSend } from "@tabler/icons-preact";
 import { useState } from "preact/hooks";
 import { MAX_COMMENT_CHARS } from "./config";
-import { addComment, toggleResolved, type Session } from "./session";
+import { addComment, colorFor, toggleResolved, type Session } from "./session";
 import type { Thread } from "./types";
 
 function Composer({ label, onSend }: { label: string; onSend: (text: string) => void }) {
@@ -15,6 +16,7 @@ function Composer({ label, onSend }: { label: string; onSend: (text: string) => 
       <label>
         <span class="sr-only">{label}</span>
         <textarea
+          class="field"
           rows={2}
           maxLength={MAX_COMMENT_CHARS}
           placeholder={label}
@@ -25,8 +27,33 @@ function Composer({ label, onSend }: { label: string; onSend: (text: string) => 
           }}
         />
       </label>
-      <button type="submit" disabled={!text.trim()}>Send</button>
+      <button type="submit" class="btn primary sm" disabled={!text.trim()}>
+        <IconSend size={14} stroke={1.75} aria-hidden="true" />
+        Send
+      </button>
     </form>
+  );
+}
+
+const when = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+function Note({ user, at, line, text, reply }: { user: string; at: number; line: number | null; text: string; reply?: boolean }) {
+  return (
+    <div class={`note${reply ? " reply" : ""}`}>
+      <span class="note-avatar" style={{ "--c": colorFor(user) }} aria-hidden="true">
+        {user.slice(0, 1).toUpperCase()}
+      </span>
+      <div>
+        <p class="note-head">
+          <b>{user}</b>
+          {line != null && <span class="mono muted">line {line}</span>}
+          <time class="muted" dateTime={new Date(at).toISOString()}>
+            {when.format(at)}
+          </time>
+        </p>
+        <p class="note-text">{text}</p>
+      </div>
+    </div>
   );
 }
 
@@ -54,20 +81,16 @@ export function Threads({
     <section class="threads" aria-label="Comments">
       {shown.map((t) => (
         <div key={t.id} class={`thread${t.resolvedBy ? " resolved" : ""}`}>
-          <p class="comment">
-            <b>{t.root.user}</b>
-            {t.root.line != null && <span class="muted mono"> line {t.root.line}</span>}: {t.root.text}
-          </p>
+          <Note user={t.root.user} at={t.root.at_ms} line={t.root.line} text={t.root.text} />
           {t.replies.map(([id, c]) => (
-            <p key={id} class="comment reply">
-              <b>{c.user}</b>: {c.text}
-            </p>
+            <Note key={id} user={c.user} at={c.at_ms} line={null} text={c.text} reply />
           ))}
           <div class="thread-actions">
-            <button type="button" aria-pressed={!!t.resolvedBy} onClick={() => toggleResolved(s, t.id)}>
+            <button type="button" class="btn sm ghost" aria-pressed={!!t.resolvedBy} onClick={() => toggleResolved(s, t.id)}>
+              <IconCircleCheck size={14} stroke={1.75} aria-hidden="true" />
               {t.resolvedBy ? "Reopen" : "Resolve"}
             </button>
-            {t.resolvedBy && <span class="label">Resolved by {t.resolvedBy}</span>}
+            {t.resolvedBy && <span class="muted">Resolved by {t.resolvedBy}</span>}
           </div>
           {!t.resolvedBy && <Composer label="Reply" onSend={(text) => addComment(s, hunk, t.root.line, t.id, text)} />}
         </div>
@@ -82,6 +105,7 @@ export function Threads({
           <label>
             Line{" "}
             <input
+              class="field"
               type="number"
               min={lines[0]}
               max={lines[1]}

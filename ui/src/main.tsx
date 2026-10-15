@@ -4,6 +4,17 @@ import { App } from "./app";
 import { connect, storeName, storedName, type Session } from "./session";
 import type { Analysis } from "./types";
 import { NameForm } from "./name-form";
+import { transition } from "./hooks";
+
+function Loading() {
+  return (
+    <div class="loading" role="status" aria-label="Loading review">
+      {[0, 1, 2].map((i) => (
+        <div key={i} class="skeleton" style={{ "--d": i }} />
+      ))}
+    </div>
+  );
+}
 
 const params = new URLSearchParams(location.search);
 const token = params.get("t") ?? "";
@@ -31,17 +42,26 @@ function Root() {
     };
   }, [analysis, name]);
 
-  if (error) return <p class="notice" role="alert">{error}</p>;
+  if (error)
+    return (
+      <main class="join">
+        <div class="join-card" role="alert">
+          <h1>Cannot open this review</h1>
+          <p class="muted">{error}</p>
+        </div>
+      </main>
+    );
   if (!name)
     return (
       <NameForm
+        analysis={analysis}
         onSubmit={(n) => {
           storeName(n);
-          setName(n);
+          transition(() => setName(n));
         }}
       />
     );
-  if (!analysis || !session) return <p class="notice">Loading review...</p>;
+  if (!analysis || !session) return <Loading />;
   return <App analysis={analysis} session={session} token={token} />;
 }
 

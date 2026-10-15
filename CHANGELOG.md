@@ -15,6 +15,7 @@ All notable changes are listed here. The format follows Keep a Changelog and the
 - `revlens mcp`: MCP stdio server with a validated `record_assumption` tool for coding agents.
 - Re-anchoring: after a force-push or rebase, a review carries over to the new commits for every hunk whose content is unchanged.
 - Comment threads on hunks and lines (reply, resolve), live line cursors, `open_threads` in the record and `--fail-on open-threads`.
+- Reworked review UI: Geist type served locally, light and dark palettes with one cobalt accent, risk spine and score per card, progress meters, criteria drawer on narrow screens, floating map-mode bar, keyboard shortcuts (`j`/`k`/`o`/`r`/`c`/`m`, `/`, `?`), spring motion with staggered reveals, all disabled under reduced motion.
 - `--intent` and `--pr` can be combined: range from the PR, criteria from the file.
 
 ## 0.1.0

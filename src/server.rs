@@ -27,9 +27,12 @@ use crate::{conformance, time, token};
 const INDEX_HTML: &[u8] = include_bytes!("../ui/dist/index.html");
 const APP_JS: &[u8] = include_bytes!("../ui/dist/app.js");
 const APP_CSS: &[u8] = include_bytes!("../ui/dist/app.css");
+/// Geist and Geist Mono (SIL OFL 1.1, see ui/src/fonts/OFL.txt), served locally: no CDN.
+const FONT_SANS: &[u8] = include_bytes!("../ui/dist/geist.woff2");
+const FONT_MONO: &[u8] = include_bytes!("../ui/dist/geist-mono.woff2");
 
 const CSP: &str = "default-src 'self'; connect-src 'self' ws: wss:; \
-                   style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
+                   style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -77,6 +80,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/app.css",
             get(|| async { asset("text/css; charset=utf-8", APP_CSS, false) }),
+        )
+        .route(
+            "/geist.woff2",
+            get(|| async { asset("font/woff2", FONT_SANS, false) }),
+        )
+        .route(
+            "/geist-mono.woff2",
+            get(|| async { asset("font/woff2", FONT_MONO, false) }),
         )
         .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
         .merge(guarded)

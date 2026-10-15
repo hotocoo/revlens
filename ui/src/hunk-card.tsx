@@ -1,8 +1,18 @@
+import {
+  IconArrowsShuffle,
+  IconCheck,
+  IconChevronRight,
+  IconHandGrab,
+  IconLink,
+  IconMessageCircle,
+  IconRobot,
+} from "@tabler/icons-preact";
 import { useState } from "preact/hooks";
 import { MAX_DIFF_LINES } from "./config";
 import { isDemoted } from "./derive";
 import { Threads } from "./threads";
 import {
+  mapKey,
   readClaim,
   setCursor,
   setFocus,
@@ -10,12 +20,12 @@ import {
   toggleClaim,
   toggleMapping,
   toggleReviewed,
-  mapKey,
   type Session,
 } from "./session";
 import type { Analysis, Hunk, Line, Peer } from "./types";
 
 type Props = {
+  index: number;
   hunk: Hunk;
   analysis: Analysis;
   session: Session;
@@ -25,19 +35,16 @@ type Props = {
   defaultOpen: boolean;
 };
 
-function kindLabel(h: Hunk): string {
-  switch (h.kind.type) {
-    case "Moved":
-      return "Moved";
-    case "FormatOnly":
-      return "Format only";
-    case "New":
-      return "New";
-    case "Deleted":
-      return "Deleted";
-    default:
-      return "Changed";
-  }
+const KIND: Record<Hunk["kind"]["type"], string> = {
+  Changed: "Changed",
+  New: "New",
+  Deleted: "Deleted",
+  Moved: "Moved",
+  FormatOnly: "Format only",
+};
+
+function band(score: number): "hi" | "mid" | "lo" {
+  return score >= 40 ? "hi" : score >= 15 ? "mid" : "lo";
 }
 
 /** New-side line number of each diff line (old-side for removed lines). */
@@ -50,19 +57,24 @@ function numbered(h: Hunk, lines: Line[]): number[] {
   });
 }
 
-export function HunkCard({ hunk: h, analysis, session: s, peers, crits, selected, defaultOpen }: Props) {
+function splitPath(path: string): [string, string] {
+  const i = path.lastIndexOf("/");
+  return i < 0 ? ["", path] : [path.slice(0, i + 1), path.slice(i + 1)];
+}
+
+export function HunkCard({ index, hunk: h, analysis, session: s, peers, crits, selected, defaultOpen }: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const [all, setAll] = useState(false);
   const [line, setLine] = useState<number | null>(null);
-  const threads = threadsFor(s, h.id);
-  const openThreads = threads.filter((t) => !t.resolvedBy).length;
-  const me = s.provider.awareness.clientID;
-  const cursors = peers.filter((p) => p.clientId !== me && p.cursor?.hunk === h.id);
   const demoted = isDemoted(h);
   const claim = readClaim(s.claims.get(h.id));
   const mine = claim?.user === s.me.name;
   const reviewer = s.reviewed.get(h.id);
-  const viewers = peers.filter((p) => p.focus === h.id && p.clientId !== s.provider.awareness.clientID);
+  const me = s.provider.awareness.clientID;
+  const viewers = peers.filter((p) => p.focus === h.id && p.clientId !== me);
+  const cursors = peers.filter((p) => p.clientId !== me && p.cursor?.hunk === h.id);
+  const threads = threadsFor(s, h.id);
+  const openThreads = threads.filter((t) => !t.resolvedBy).length;
   const assumptions = analysis.assumptions.filter(
     (a) => a.path === h.path && (a.line == null || (a.line >= h.new_start && a.line < h.new_start + Math.max(h.new_len, 1))),
   );
@@ -70,12 +82,15 @@ export function HunkCard({ hunk: h, analysis, session: s, peers, crits, selected
   const mappedHere = selected !== null && s.mappings.has(mapKey(selected, h.id));
   const lines = all ? h.lines : h.lines.slice(0, MAX_DIFF_LINES);
   const nums = numbered(h, lines);
+  const [dir, file] = splitPath(h.path);
   const bodyId = `body-${h.id}`;
+  const b = band(h.score);
 
   return (
-    <article
-      class={`hunk${demoted ? " demoted" : ""}${reviewer ? " reviewed" : ""}`}
-      aria-label={`${h.path} line ${h.new_start}`}
+    <li
+      class={`card reveal band-${b}${demoted ? " demoted" : ""}${reviewer ? " reviewed" : ""}${mappedHere ? " mapped" : ""}`}
+      data-hunk={h.id}
+      style={{ "--d": Math.min(index, 10) }}
       onMouseEnter={() => setFocus(s, h.id)}
       onFocusCapture={() => setFocus(s, h.id)}
       onMouseLeave={() => {
@@ -83,91 +98,147 @@ export function HunkCard({ hunk: h, analysis, session: s, peers, crits, selected
         setCursor(s, null);
       }}
     >
-      <header>
-        <span class={`score ${h.score >= 40 ? "hi" : h.score >= 15 ? "mid" : "lo"}`} title="Risk score">{h.score}</span>
-        <span class={`kind k-${h.kind.type}`}>{kindLabel(h)}</span>
-        <button type="button" class="path mono" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
-          {h.path}:{h.new_start}
-        </button>
-        {viewers.map((p) => (
-          <span key={p.clientId} class="viewing" style={{ background: p.color }} title={`${p.name} is viewing`} role="img" aria-label={`${p.name} is viewing`} />
-        ))}
-        <span class="spacer" />
-        {openThreads > 0 && (
-          <span class="chip threads-chip" title="Unresolved comment threads">
-            {openThreads} {openThreads === 1 ? "thread" : "threads"}
-          </span>
-        )}
-        {crits.map((c) => (
-          <span key={c} class="chip crit-chip mono">{c}</span>
-        ))}
+      <header class="card-head">
+        <span class="score num" title={`Risk score ${h.score}`} aria-label={`Risk ${h.score}`}>
+          {h.score}
+        </span>
+        <div class="card-title">
+          <button
+            type="button"
+            class="path"
+            data-act="toggle"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setOpen(!open)}
+          >
+            <IconChevronRight class="chev" size={16} stroke={2} aria-hidden="true" />
+            <span class="mono">
+              <span class="dir">{dir}</span>
+              <span class="file">{file}</span>
+              <span class="at">:{h.new_start}</span>
+            </span>
+          </button>
+          <p class="card-meta">
+            <span class={`kind k-${h.kind.type}`}>{KIND[h.kind.type]}</span>
+            {h.kind.type === "Moved" && (
+              <span class="muted">
+                <IconArrowsShuffle size={13} stroke={1.75} aria-hidden="true" />{" "}
+                {h.lines.find((l) => l.kind !== " ")?.kind === "-" ? "to" : "from"}{" "}
+                <span class="mono">
+                  {h.kind.from.path}:{h.kind.from.line}
+                </span>
+              </span>
+            )}
+            {syms.map((x, i) => (
+              <span key={i} class="sym mono" title={x.change.type}>
+                {x.name}
+              </span>
+            ))}
+          </p>
+        </div>
+        <div class="card-side">
+          {viewers.length > 0 && (
+            <span class="viewers" role="img" aria-label={`Viewing: ${viewers.map((p) => p.name).join(", ")}`}>
+              {viewers.map((p) => (
+                <span key={p.clientId} class="viewer" style={{ "--c": p.color }} title={`${p.name} is here`} />
+              ))}
+            </span>
+          )}
+          {openThreads > 0 && (
+            <span class="pill warn" title="Unresolved comment threads">
+              <IconMessageCircle size={13} stroke={2} aria-hidden="true" />
+              {openThreads} {openThreads === 1 ? "thread" : "threads"}
+            </span>
+          )}
+          {crits.map((c) => (
+            <span key={c} class="pill accent mono">
+              {c}
+            </span>
+          ))}
+        </div>
       </header>
-      {h.kind.type === "Moved" && (
-        <p class="muted">
-          Moved {h.lines.find((l) => l.kind !== " ")?.kind === "-" ? "to" : "from"}{" "}
-          <span class="mono">{h.kind.from.path}:{h.kind.from.line}</span>
-        </p>
-      )}
+
       {h.signals.length > 0 && (
-        <ul class="chips" aria-label="Risk reasons">
+        <ul class="reasons" aria-label="Why this ranks here">
           {h.signals.map((sig, i) => (
-            <li key={i} class="chip risk" title={`${sig.rule.type} (+${sig.points})`}>{sig.reason}</li>
+            <li key={i} title={sig.rule.type}>
+              <span class="pts num">+{sig.points}</span>
+              {sig.reason}
+            </li>
           ))}
         </ul>
       )}
-      {syms.length > 0 && (
-        <p class="syms muted">
-          Symbols:{" "}
-          {syms.map((x, i) => (
-            <span key={i} class="mono">{i > 0 ? ", " : ""}{x.name} ({x.change.type})</span>
-          ))}
-        </p>
-      )}
+
       {assumptions.map((a, i) => (
         <p key={i} class="assumption">
-          <b>Assumption{a.agent ? ` by ${a.agent}` : ""}:</b> {a.text}
-          {a.line != null && <span class="muted"> (line {a.line})</span>}
+          <IconRobot size={15} stroke={1.75} aria-hidden="true" />
+          <span>
+            <b>{a.agent ? `${a.agent} assumed` : "Assumed"}</b> {a.text}
+            {a.line != null && <span class="muted"> line {a.line}</span>}
+          </span>
         </p>
       ))}
+
       <div class="actions">
         {selected && (
-          <button type="button" class={mappedHere ? "on" : ""} aria-pressed={mappedHere} onClick={() => toggleMapping(s, selected, h.id)}>
+          <button type="button" class="btn sm toggle" data-act="map" aria-pressed={mappedHere} onClick={() => toggleMapping(s, selected, h.id)}>
+            <IconLink size={14} stroke={1.75} aria-hidden="true" />
             {mappedHere ? `Mapped to ${selected}` : `Map to ${selected}`}
           </button>
         )}
-        <button type="button" aria-pressed={mine} disabled={!!claim && !mine} onClick={() => toggleClaim(s, h.id)}>
+        <button
+          type="button"
+          class="btn sm"
+          data-act="claim"
+          aria-pressed={mine}
+          disabled={!!claim && !mine}
+          onClick={() => toggleClaim(s, h.id)}
+        >
+          <IconHandGrab size={14} stroke={1.75} aria-hidden="true" />
           {mine ? "Release" : "Claim"}
         </button>
-        <button type="button" class={reviewer ? "on" : ""} aria-pressed={!!reviewer} onClick={() => toggleReviewed(s, h.id)}>
+        <button type="button" class="btn sm ok" data-act="review" aria-pressed={!!reviewer} onClick={() => toggleReviewed(s, h.id)}>
+          <IconCheck size={14} stroke={2.25} aria-hidden="true" key={reviewer ? "on" : "off"} />
           {reviewer ? "Reviewed" : "Mark reviewed"}
         </button>
-        {claim && <span class="label">Claimed by {claim.user}</span>}
-        {reviewer && <span class="label">Reviewed by {reviewer}</span>}
+        <span class="who">
+          {claim && <span>Claimed by {claim.user}</span>}
+          {reviewer && <span>Reviewed by {reviewer}</span>}
+        </span>
       </div>
+
       {open && (
-        <div id={bodyId}>
+        <div id={bodyId} class="card-body">
           <pre class="diff" tabIndex={0} aria-label="Diff. Click a line to comment on it.">
             {lines.map((l, i) => {
               const no = nums[i] ?? 0;
-              const here = cursors.filter((p) => l.kind !== "-" && p.cursor?.line === no);
+              const peer = l.kind === "-" ? undefined : cursors.find((p) => p.cursor?.line === no);
               const cls = l.kind === "+" ? "add" : l.kind === "-" ? "del" : "ctx";
               return (
                 <span
                   key={i}
-                  class={`${cls}${line === no && l.kind !== "-" ? " picked" : ""}`}
-                  style={here[0] ? { boxShadow: `inset 3px 0 0 ${here[0].color}` } : undefined}
-                  title={here.length ? `${here.map((p) => p.name).join(", ")} here` : undefined}
+                  class={`dl ${cls}${line === no && l.kind !== "-" ? " picked" : ""}${peer ? " peer" : ""}`}
+                  style={peer ? { "--c": peer.color } : undefined}
+                  data-peer={peer?.name}
                   onMouseEnter={() => l.kind !== "-" && setCursor(s, { hunk: h.id, line: no })}
                   onClick={() => l.kind !== "-" && setLine(no)}
                 >
-                  <span class="ln" aria-hidden="true">{l.kind === "-" ? "" : no}</span>
-                  {l.kind}{l.text}{"\n"}
+                  <span class="ln" aria-hidden="true">
+                    {no}
+                  </span>
+                  <span class="mk" aria-hidden="true">
+                    {l.kind}
+                  </span>
+                  {l.text}
+                  {"\n"}
                 </span>
               );
             })}
           </pre>
           {h.lines.length > lines.length && (
-            <button type="button" onClick={() => setAll(true)}>Show all {h.lines.length} lines</button>
+            <button type="button" class="btn sm" onClick={() => setAll(true)}>
+              Show all {h.lines.length} lines
+            </button>
           )}
         </div>
       )}
@@ -181,6 +252,6 @@ export function HunkCard({ hunk: h, analysis, session: s, peers, crits, selected
           onLine={setLine}
         />
       )}
-    </article>
+    </li>
   );
 }

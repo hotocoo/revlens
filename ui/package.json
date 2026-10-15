@@ -8,6 +8,7 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "@tabler/icons-preact": "3.48.0",
     "preact": "10.29.8",
     "y-websocket": "3.1.0",
     "yjs": "13.6.33"
