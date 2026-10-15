@@ -90,6 +90,8 @@ Inputs: `version` (default `latest`), `pr` (default: the triggering PR), `intent
 
 Pass the same range and the same `--intent`, `--pr`, or `--assumptions` to `export` as to `review`: the session is keyed on them, and with a different set `export` warns and uses an empty state.
 
+After a force-push or rebase the commits change, so the session does too. Lens keeps a `<session>.meta.json` beside each session with the range as typed (or the PR number), the criteria, and an anchor per hunk: its path and changed lines, without line numbers. A new session with no file yet takes over the newest earlier session with the same range text (or PR) and criteria. Criterion status carries over; reviewed marks, mappings and claims carry over for every hunk whose anchor is found again, and Lens prints how many were. Hunks whose content changed start unreviewed.
+
 ### Flags
 
 | Command | Flags |
@@ -251,7 +253,6 @@ Lens does not replace an AI reviewer: it gives the humans (and the AI's output) 
 
 Not in 0.1.0:
 
-2. Re-anchoring reviews after a force-push
 3. Comment threads and cursors
 
 ## Contributing

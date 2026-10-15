@@ -389,3 +389,52 @@ fn llm_intent_uses_the_configured_command_once() -> Result<()> {
     assert!(text(&none.stderr).contains("--llm-intent needs --intent or --pr"));
     Ok(())
 }
+
+#[test]
+fn review_state_survives_a_force_push() -> Result<()> {
+    let f = repo()?;
+    let d = f.dir.path();
+    common::git(d, &["checkout", "-q", "-b", "feat"])?;
+    common::git(d, &["branch", "-f", "main", &f.base])?;
+    std::fs::create_dir_all(d.join(".revlens/sessions"))?;
+    // First export records the session's anchors; then a reviewer marks the hunk.
+    let first = run(&["export", "main..feat", "--format", "json"], d)?;
+    assert!(first.status.success(), "{}", text(&first.stderr));
+    let repo = Repo::discover(d)?;
+    let a = analyze::run(&repo, "main", "feat", &Config::default())?;
+    let hunk = a.hunks[0].id.clone();
+    let doc = Doc::new();
+    apply_state(
+        &doc,
+        &SessionState {
+            reviewed: BTreeMap::from([(hunk.clone(), "ann".to_string())]),
+            ..SessionState::default()
+        },
+    );
+    std::fs::write(
+        session_path(&repo, &a),
+        doc.transact()
+            .encode_state_as_update_v1(&StateVector::default()),
+    )?;
+    // Rewrite the branch: same change, now below a new header line and in a new commit.
+    std::fs::write(d.join("README"), "new file\n")?;
+    common::git(d, &["add", "README"])?;
+    common::git(d, &["commit", "-q", "--amend", "-m", "rewritten"])?;
+    let out = run(&["export", "main..feat", "--format", "json"], d)?;
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).contains("re-anchored review from"),
+        "{}",
+        text(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let unreviewed: Vec<&str> = v["unreviewed"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|h| h["path"].as_str())
+        .collect();
+    assert_eq!(unreviewed, ["README"], "pay.py stays reviewed: {v}");
+    assert_eq!(v["reviewers"], serde_json::json!(["ann"]));
+    Ok(())
+}

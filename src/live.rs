@@ -207,6 +207,11 @@ impl Session {
         Ok(state)
     }
 
+    /// Write `state` into the doc (used to seed a re-anchored session).
+    pub fn import(&self, state: &SessionState) {
+        apply_state(&self.doc, state);
+    }
+
     /// Atomic write (tmp file + rename) of the full doc state.
     pub fn persist(&self) -> Result<()> {
         let bytes = {

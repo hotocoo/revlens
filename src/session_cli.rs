@@ -90,6 +90,22 @@ pub fn load(src: &Source) -> Result<(Repo, Analysis)> {
     Ok((repo, analysis))
 }
 
+/// The session file for this review, re-anchoring state from an earlier review of the same
+/// source (after a force-push or rebase) when the file does not exist yet.
+pub fn prepare_session(repo: &Repo, a: &Analysis, src: &Source) -> Result<PathBuf> {
+    let path = session_path(repo, a);
+    let source = crate::reanchor::source_key(src.range, src.pr, a);
+    if let Some(r) = crate::reanchor::prepare(&path, &source, a)? {
+        eprintln!(
+            "re-anchored review from {}: {} of {} reviewed hunks found again; the rest changed since",
+            r.from.display(),
+            r.carried,
+            r.had_state
+        );
+    }
+    Ok(path)
+}
+
 /// `.revlens/sessions/<session_id>.ydoc` under the repo root.
 pub fn session_path(repo: &Repo, a: &Analysis) -> PathBuf {
     // Status and mappings are keyed by positional criterion ids, so a different criteria set

@@ -17,6 +17,7 @@ pub mod mcp;
 pub mod model;
 pub mod par;
 pub mod patch;
+pub mod reanchor;
 pub mod reuse;
 pub mod risk;
 pub mod server;

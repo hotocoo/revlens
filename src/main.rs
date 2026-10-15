@@ -246,10 +246,11 @@ fn run(cli: Cli) -> Result<bool> {
 fn review(src: &Source, share: bool, port: Option<u16>, no_open: bool) -> Result<()> {
     let (repo, analysis) = session_cli::load(src)?;
     let cfg = Config::load(repo.root())?;
-    let path = session_cli::session_path(&repo, &analysis);
-    if let Some(dir) = path.parent() {
+    let dir = session_cli::session_path(&repo, &analysis);
+    if let Some(dir) = dir.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
+    let path = session_cli::prepare_session(&repo, &analysis, src)?;
     println!("Session file: {}", path.display());
     println!("Hint: add .revlens/sessions/ and .revlens/cache/ to .gitignore.");
     let rt = tokio::runtime::Runtime::new().context("starting async runtime")?;
@@ -290,7 +291,7 @@ fn export(src: &Source, format: Format, out: Option<&Path>, gate: &Gate) -> Resu
         anyhow::bail!("--post needs --pr");
     }
     let (repo, analysis) = session_cli::load(src)?;
-    let path = session_cli::session_path(&repo, &analysis);
+    let path = session_cli::prepare_session(&repo, &analysis, src)?;
     if !path.exists() {
         eprintln!(
             "no session file at {}; exporting with empty state",
