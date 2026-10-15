@@ -1,12 +1,38 @@
 import { IconArrowRight } from "@tabler/icons-preact";
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { PARALLAX_PX } from "./config";
 import { shortSha } from "./derive";
 import type { Analysis } from "./types";
 
+/** The backdrop drifts opposite the pointer by up to PARALLAX_PX: depth behind the card. */
+function useParallax(ref: { current: HTMLElement | null }) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || matchMedia("(prefers-reduced-motion: reduce), (pointer: coarse)").matches) return;
+    let frame = 0;
+    const on = (e: PointerEvent) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const x = (e.clientX / innerWidth - 0.5) * -2 * PARALLAX_PX;
+        const y = (e.clientY / innerHeight - 0.5) * -2 * PARALLAX_PX;
+        el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      });
+    };
+    addEventListener("pointermove", on, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      removeEventListener("pointermove", on);
+    };
+  }, [ref]);
+}
+
 export function NameForm({ analysis, onSubmit }: { analysis: Analysis | null; onSubmit: (name: string) => void }) {
   const [v, setV] = useState("");
+  const backdrop = useRef<HTMLDivElement>(null);
+  useParallax(backdrop);
   return (
     <main class="join">
+      <div class="join-backdrop" ref={backdrop} aria-hidden="true" />
       <form
         class="join-card"
         onSubmit={(e) => {

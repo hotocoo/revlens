@@ -42,7 +42,7 @@ pub fn criteria(doc: &str, cfg: &Intent, repo_root: &Path) -> Result<Vec<Criteri
                 Duration::from_secs(cfg.llm_timeout_secs),
             )?;
             let texts = parse_reply(&out, cfg)?;
-            cache::put(repo_root, &key, &texts).context("caching the extracted criteria")?;
+            cache::put(repo_root, &key, &texts, 0).context("caching the extracted criteria")?;
             eprintln!(
                 "note: {} criteria extracted by `{prog}`; cached under {} (delete it to re-extract)",
                 texts.len(),

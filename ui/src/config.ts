@@ -2,6 +2,8 @@
 
 /** Cards in one reveal batch that get increasing delay; later ones appear with the last. */
 export const REVEAL_STAGGER_MAX = 10;
+/** Furthest the join screen backdrop drifts from center, in pixels. */
+export const PARALLAX_PX = 14;
 /** Width at which criteria sit in a rail instead of a drawer. */
 export const WIDE_QUERY = "(min-width: 1024px)";
 /** Hunk cards whose diff is expanded on first render (demoted hunks always start collapsed). */

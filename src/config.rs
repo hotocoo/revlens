@@ -152,6 +152,8 @@ pub struct Limits {
     pub threads: usize,
     /// Reuse analysis results from `.revlens/cache/` when the commits, config and version match.
     pub cache_enabled: bool,
+    /// Most analyses kept in `.revlens/cache/`; the oldest are deleted beyond it (0 keeps all).
+    pub cache_max_entries: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -308,6 +310,7 @@ impl Default for Limits {
             near_duplicate_percent: 75,
             threads: 0,
             cache_enabled: true,
+            cache_max_entries: 200,
         }
     }
 }

@@ -81,6 +81,8 @@ threads = 0
 # Reuse analysis results from .revlens/cache/ when the commits, config and version match
 # (--no-cache turns it off).
 cache_enabled = true
+# Most cache files kept; the oldest are deleted beyond it (0 keeps all).
+cache_max_entries = 200
 
 [server]
 # Address used without --share.

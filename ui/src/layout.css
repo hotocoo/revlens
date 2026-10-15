@@ -379,13 +379,24 @@
 /* ---- Join, error and loading ---- */
 
 .join {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 100dvh;
   padding: var(--s-5);
-  background:
-    radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 22px 22px,
-    var(--bg);
+  overflow: hidden;
+  background: var(--bg);
+}
+.join-backdrop {
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(circle at 1px 1px, var(--line-strong) 1px, transparent 0) 0 0 / 22px 22px;
+  mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+  transition: transform var(--dur-3) var(--ease-out);
+  will-change: transform;
+}
+.join-card {
+  position: relative;
 }
 .join-card {
   display: grid;

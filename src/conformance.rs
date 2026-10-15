@@ -135,11 +135,6 @@ fn open_threads(analysis: &Analysis, state: &SessionState) -> Vec<ThreadRef> {
     out
 }
 
-/// Reviewer-written text: one line, and no raw HTML once the record is posted to a PR.
-fn comment_text(s: &str) -> String {
-    cell(s).replace('<', "&lt;").replace('>', "&gt;")
-}
-
 fn status_text(s: CritStatus) -> &'static str {
     match s {
         CritStatus::Open => "OPEN",
@@ -153,8 +148,14 @@ fn loc(h: &HunkRef) -> String {
     format!("`{}:{}`", h.path, h.new_start)
 }
 
+/// User-supplied text (criteria, names, comments) as one Markdown line with no raw HTML, so a
+/// record posted to a PR cannot inject markup.
 fn cell(s: &str) -> String {
-    s.replace('|', "\\|").replace('\n', " ")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('|', "\\|")
+        .replace('\n', " ")
 }
 
 fn hunk_section(out: &mut String, title: &str, hunks: &[HunkRef]) {
@@ -179,7 +180,11 @@ pub fn render_markdown(rec: &ConformanceRecord) -> String {
     let who = if rec.reviewers.is_empty() {
         "none".into()
     } else {
-        rec.reviewers.join(", ")
+        rec.reviewers
+            .iter()
+            .map(|r| cell(r))
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     let _ = writeln!(out, "Reviewers: {who}");
     out.push_str("\n## Criteria\n\n");
@@ -214,7 +219,7 @@ pub fn render_markdown(rec: &ConformanceRecord) -> String {
             .iter()
             .find(|c| &c.criterion.id == id)
             .map_or("", |c| &c.criterion.text);
-        let _ = writeln!(out, "- {id}: {text}");
+        let _ = writeln!(out, "- {id}: {}", cell(text));
     }
     hunk_section(&mut out, "Unreviewed", &rec.unreviewed);
     hunk_section(&mut out, "Reuse misses", &rec.reuse_misses);
@@ -233,8 +238,8 @@ pub fn render_markdown(rec: &ConformanceRecord) -> String {
             "- `{}:{}` {}: {}{replies}",
             t.path,
             t.line,
-            comment_text(&t.user),
-            comment_text(&t.text)
+            cell(&t.user),
+            cell(&t.text)
         );
     }
     let _ = write!(
@@ -531,12 +536,16 @@ mod tests {
         let mut a = analysis(vec![], 0);
         a.criteria.push(Criterion {
             id: "c1".into(),
-            text: "a | b".into(),
+            text: "a | b <img src=x onerror=alert(1)> & c".into(),
             source_line: 1,
         });
         let r = build(&a, &SessionState::default(), "T".into());
         let md = render_markdown(&r);
-        assert!(md.contains("a \\| b"));
+        assert!(
+            md.contains("a \\| b &lt;img src=x onerror=alert(1)&gt; &amp; c"),
+            "{md}"
+        );
+        assert!(!md.contains("<img"));
         assert!(md.contains("Reviewers: none"));
         let none = render_markdown(&build(
             &analysis(vec![], 0),

@@ -39,7 +39,7 @@ pub fn run(repo: &Repo, base: &str, head: &str, cfg: &Config) -> Result<Analysis
         return Ok(a);
     }
     let a = compute(repo, base, head, merge_base, cfg)?;
-    if let Err(e) = cache::put(repo.root(), &key, &a) {
+    if let Err(e) = cache::put(repo.root(), &key, &a, cfg.limits.cache_max_entries) {
         eprintln!("warning: not caching the analysis: {e:#}");
     }
     Ok(a)
