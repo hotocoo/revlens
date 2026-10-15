@@ -58,9 +58,35 @@ Two reviewers: the second one opens the same URL, or the first runs with `--shar
 Post the conformance record to the PR:
 
 ```sh
-revlens export main..my-branch --intent ticket.md | gh pr comment 123 --body-file -
+revlens export --pr 123 --post                     # comment on the PR; reruns edit the same comment
 revlens export main..my-branch --intent ticket.md --format json --out record.json
 ```
+
+### In CI
+
+`--fail-on` exits with status 2 (errors exit 1) when any listed condition holds: `missing-work`, `scope-creep`, `unreviewed`, `reuse-miss`, `not-met`, `open`. `--fail-on-score N` fails when any hunk scores N or more. CI has no review session, so `unreviewed` and `open` hold for every change there; use them only after a review.
+
+The repository is also a GitHub Action. It downloads a release binary, posts the record on the PR and writes it to the job summary:
+
+```yaml
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  lens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0          # merge base must be reachable
+      - uses: hotocoo/revlens@v0.2.0
+        with:
+          fail-on: missing-work,reuse-miss
+          fail-on-score: 60
+```
+
+Inputs: `version` (default `latest`), `pr` (default: the triggering PR), `intent` (file used instead of the PR body), `post` (default `true`), `fail-on`, `fail-on-score`, `args` (extra `export` flags), `token`. Output: `record`, the path of the Markdown record.
 
 Pass the same range and the same `--intent`, `--pr`, or `--assumptions` to `export` as to `review`: the session is keyed on them, and with a different set `export` warns and uses an empty state.
 
@@ -70,9 +96,9 @@ Pass the same range and the same `--intent`, `--pr`, or `--assumptions` to `expo
 | --- | --- |
 | `analyze <RANGE>` | `--repo <PATH>`, `--json`, `--no-reuse` |
 | `review [RANGE]` | `--repo`, `--intent <FILE>`, `--pr <N>`, `--assumptions <FILE>`, `--share`, `--port <N>`, `--no-open`, `--no-reuse` |
-| `export [RANGE]` | `--repo`, `--intent`, `--pr`, `--assumptions`, `--no-reuse`, `--format md\|json`, `--out <FILE>` |
+| `export [RANGE]` | `--repo`, `--intent`, `--pr`, `--assumptions`, `--no-reuse`, `--format md\|json`, `--out <FILE>`, `--post`, `--fail-on <LIST>`, `--fail-on-score <N>` |
 
-`RANGE` is optional with `--pr`. `--intent` conflicts with `--pr`.
+`RANGE` is optional with `--pr`. With both `--pr` and `--intent`, the range comes from the PR and the criteria from the file. `--post` needs `--pr`.
 
 ## How ranking works
 
@@ -201,7 +227,6 @@ Not in 0.1.0:
 1. MCP `record_assumption` tool for agents
 2. Re-anchoring reviews after a force-push
 3. Comment threads and cursors
-4. GitHub Action with `--post` and `--fail-on`
 5. Near-duplicate detection, parallel analysis, caching
 6. Rust and Go grammars
 7. Opt-in LLM intent parsing

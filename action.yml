@@ -1,0 +1,94 @@
+name: Lens conformance record
+description: Check a pull request against its acceptance criteria with revlens, post the record, and fail on chosen conditions.
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  version:
+    description: Release tag to install (for example v0.2.0), or "latest".
+    default: latest
+  pr:
+    description: Pull request number. Defaults to the PR that triggered the workflow.
+    default: ""
+  intent:
+    description: Intent file to use instead of the PR body's acceptance criteria.
+    default: ""
+  post:
+    description: Post the record as a PR comment (updated in place on reruns). Needs `pull-requests: write`.
+    default: "true"
+  fail-on:
+    description: Comma-separated conditions that fail the job (missing-work, scope-creep, unreviewed, reuse-miss, not-met, open).
+    default: ""
+  fail-on-score:
+    description: Fail when any hunk scores at least this much.
+    default: ""
+  args:
+    description: Extra arguments passed to `revlens export` (for example --no-reuse).
+    default: ""
+  token:
+    description: Token for `gh` (release download, PR metadata, comment).
+    default: ${{ github.token }}
+
+outputs:
+  record:
+    description: Path of the Markdown conformance record.
+    value: ${{ steps.export.outputs.record }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install revlens
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "${RUNNER_OS}-${RUNNER_ARCH}" in
+          Linux-X64) target=x86_64-unknown-linux-musl; ext=tar.gz ;;
+          macOS-ARM64) target=aarch64-apple-darwin; ext=tar.gz ;;
+          macOS-X64) target=x86_64-apple-darwin; ext=tar.gz ;;
+          Windows-X64) target=x86_64-pc-windows-msvc; ext=zip ;;
+          *) echo "::error::no revlens build for ${RUNNER_OS}-${RUNNER_ARCH}"; exit 1 ;;
+        esac
+        tag="$VERSION"
+        if [ "$tag" = latest ]; then
+          tag=$(gh release view --repo hotocoo/revlens --json tagName --jq .tagName)
+        fi
+        dir="${RUNNER_TEMP}/revlens"
+        mkdir -p "$dir"
+        name="revlens-${tag}-${target}"
+        gh release download "$tag" --repo hotocoo/revlens --pattern "${name}.${ext}*" --dir "$dir" --clobber
+        cd "$dir"
+        if command -v sha256sum >/dev/null; then sha256sum -c "${name}.${ext}.sha256"; else shasum -a 256 -c "${name}.${ext}.sha256"; fi
+        if [ "$ext" = zip ]; then 7z x -y "${name}.zip" >/dev/null; else tar xzf "${name}.tar.gz"; fi
+        echo "${dir}/${name}" >> "$GITHUB_PATH"
+
+    - name: Export conformance record
+      id: export
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR: ${{ inputs.pr || github.event.pull_request.number }}
+        INTENT: ${{ inputs.intent }}
+        POST: ${{ inputs.post }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        FAIL_ON_SCORE: ${{ inputs.fail-on-score }}
+        EXTRA: ${{ inputs.args }}
+      run: |
+        set -uo pipefail
+        if [ -z "$PR" ]; then echo "::error::no pull request number (set the pr input)"; exit 1; fi
+        record="${RUNNER_TEMP}/revlens-record.md"
+        args=(export --pr "$PR" --out "$record")
+        [ -n "$INTENT" ] && args+=(--intent "$INTENT")
+        [ "$POST" = true ] && args+=(--post)
+        [ -n "$FAIL_ON" ] && args+=(--fail-on "$FAIL_ON")
+        [ -n "$FAIL_ON_SCORE" ] && args+=(--fail-on-score "$FAIL_ON_SCORE")
+        # shellcheck disable=SC2206 # word splitting of extra args is intended
+        [ -n "$EXTRA" ] && args+=($EXTRA)
+        revlens "${args[@]}"
+        status=$?
+        echo "record=$record" >> "$GITHUB_OUTPUT"
+        [ -f "$record" ] && cat "$record" >> "$GITHUB_STEP_SUMMARY"
+        exit $status

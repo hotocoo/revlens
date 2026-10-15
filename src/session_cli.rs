@@ -126,6 +126,85 @@ fn fetch_pr(repo: &Repo, n: u32) -> Result<PrInfo> {
     Ok(info)
 }
 
+/// Hidden first line of a posted record; reruns edit the comment carrying it instead of stacking.
+pub const COMMENT_MARKER: &str = "<!-- revlens:conformance -->";
+
+/// Post `body` on PR `n`, replacing the previous Lens comment if there is one.
+pub fn post_pr_comment(repo: &Repo, n: u32, body: &str) -> Result<()> {
+    let body = format!("{COMMENT_MARKER}\n{body}");
+    let jq = format!(
+        ".[] | select(.body | startswith({})) | .id",
+        serde_json::to_string(COMMENT_MARKER).context("quoting marker")?
+    );
+    let list = gh(
+        repo,
+        &[
+            "api",
+            "--paginate",
+            &format!("repos/{{owner}}/{{repo}}/issues/{n}/comments"),
+            "--jq",
+            &jq,
+        ],
+        None,
+    )?;
+    match list.lines().rev().find(|l| !l.trim().is_empty()) {
+        Some(id) => {
+            let payload = serde_json::json!({ "body": body }).to_string();
+            gh(
+                repo,
+                &[
+                    "api",
+                    "-X",
+                    "PATCH",
+                    &format!("repos/{{owner}}/{{repo}}/issues/comments/{}", id.trim()),
+                    "--input",
+                    "-",
+                ],
+                Some(&payload),
+            )?;
+        }
+        None => {
+            gh(
+                repo,
+                &["pr", "comment", &n.to_string(), "--body-file", "-"],
+                Some(&body),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Run `gh` in the repo, optionally feeding stdin; returns stdout.
+fn gh(repo: &Repo, args: &[&str], stdin: Option<&str>) -> Result<String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("gh")
+        .current_dir(repo.root())
+        .args(args)
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("running `gh` (is the GitHub CLI installed?)")?;
+    if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        pipe.write_all(text.as_bytes())
+            .context("writing to `gh` stdin")?;
+    }
+    let out = child.wait_with_output().context("waiting for `gh`")?;
+    if !out.status.success() {
+        bail!(
+            "gh {}: {}",
+            args.first().copied().unwrap_or_default(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
 fn git_fetch(repo: &Repo, refspec: &str) -> Result<()> {
     let out = Command::new("git")
         .current_dir(repo.root())

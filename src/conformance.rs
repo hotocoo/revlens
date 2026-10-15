@@ -192,6 +192,73 @@ pub fn render_json(rec: &ConformanceRecord) -> Result<String> {
     serde_json::to_string_pretty(rec).context("serializing conformance record")
 }
 
+/// Record conditions that `revlens export --fail-on` turns into a failing exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum FailOn {
+    /// A criterion has no hunks and is not N/A.
+    MissingWork,
+    /// A hunk maps to no criterion.
+    ScopeCreep,
+    /// A hunk nobody marked reviewed.
+    Unreviewed,
+    /// A hunk duplicates existing code.
+    ReuseMiss,
+    /// A criterion is marked Not met.
+    NotMet,
+    /// A criterion is still Open.
+    Open,
+}
+
+/// One line per condition that holds; empty means pass. `min_score` fails on any hunk scoring
+/// at least that much.
+pub fn failures(
+    analysis: &Analysis,
+    rec: &ConformanceRecord,
+    on: &[FailOn],
+    min_score: Option<u32>,
+) -> Vec<String> {
+    let count = |s: CritStatus| rec.criteria.iter().filter(|c| c.status == s).count();
+    let mut out = Vec::new();
+    let mut check = |hit: bool, what: String| {
+        if hit {
+            out.push(what);
+        }
+    };
+    for f in on {
+        match f {
+            FailOn::MissingWork => check(
+                !rec.missing_work.is_empty(),
+                format!("missing work: {}", rec.missing_work.join(", ")),
+            ),
+            FailOn::ScopeCreep => check(
+                !rec.scope_creep.is_empty(),
+                format!("{} hunks map to no criterion", rec.scope_creep.len()),
+            ),
+            FailOn::Unreviewed => check(
+                !rec.unreviewed.is_empty(),
+                format!("{} hunks unreviewed", rec.unreviewed.len()),
+            ),
+            FailOn::ReuseMiss => check(
+                !rec.reuse_misses.is_empty(),
+                format!("{} hunks duplicate existing code", rec.reuse_misses.len()),
+            ),
+            FailOn::NotMet => check(
+                count(CritStatus::NotMet) > 0,
+                format!("{} criteria not met", count(CritStatus::NotMet)),
+            ),
+            FailOn::Open => check(
+                count(CritStatus::Open) > 0,
+                format!("{} criteria still open", count(CritStatus::Open)),
+            ),
+        }
+    }
+    if let Some(min) = min_score {
+        let n = analysis.hunks.iter().filter(|h| h.score >= min).count();
+        check(n > 0, format!("{n} hunks score {min} or more"));
+    }
+    out
+}
+
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
@@ -389,6 +456,39 @@ mod tests {
             "T".into(),
         ));
         assert!(none.contains("## Criteria\n\nNone."));
+    }
+
+    #[test]
+    fn failures_report_each_condition_that_holds() {
+        let (a, s) = realistic();
+        let r = build(&a, &s, "T".into());
+        let all = [
+            FailOn::MissingWork,
+            FailOn::ScopeCreep,
+            FailOn::Unreviewed,
+            FailOn::ReuseMiss,
+            FailOn::NotMet,
+            FailOn::Open,
+        ];
+        assert_eq!(
+            failures(&a, &r, &all, Some(42)),
+            [
+                "1 hunks map to no criterion",
+                "2 hunks unreviewed",
+                "1 hunks duplicate existing code",
+                "1 criteria still open",
+                "1 hunks score 42 or more",
+            ]
+        );
+        assert!(failures(&a, &r, &[], Some(43)).is_empty());
+        let mut s2 = s.clone();
+        s2.status.clear();
+        s2.status.insert("c1".into(), CritStatus::NotMet);
+        let r2 = build(&a, &s2, "T".into());
+        assert_eq!(
+            failures(&a, &r2, &[FailOn::MissingWork, FailOn::NotMet], None),
+            ["missing work: c3", "1 criteria not met"]
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use revlens::analyze;
 use revlens::config::Config;
+use revlens::conformance::FailOn;
 use revlens::git::{Repo, parse_range};
 use revlens::model::{Analysis, Hunk, HunkKind};
 use revlens::session_cli::{self, Source};
@@ -46,8 +47,8 @@ enum Cmd {
         range: Option<String>,
         #[arg(long, default_value = ".")]
         repo: PathBuf,
-        /// Intent document whose list items are the acceptance criteria.
-        #[arg(long, conflicts_with = "pr")]
+        /// Intent document whose list items are the acceptance criteria (wins over the PR body).
+        #[arg(long)]
         intent: Option<PathBuf>,
         /// Take the range and criteria from this GitHub PR (needs `gh`).
         #[arg(long)]
@@ -74,7 +75,8 @@ enum Cmd {
         range: Option<String>,
         #[arg(long, default_value = ".")]
         repo: PathBuf,
-        #[arg(long, conflicts_with = "pr")]
+        /// Intent document (wins over the PR body).
+        #[arg(long)]
         intent: Option<PathBuf>,
         #[arg(long)]
         pr: Option<u32>,
@@ -88,8 +90,20 @@ enum Cmd {
         /// Write to this file instead of stdout.
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Also post the Markdown record as a comment on the PR (replacing Lens's previous one).
+        #[arg(long)]
+        post: bool,
+        /// Exit with status 2 when any of these hold (comma-separated or repeated).
+        #[arg(long, value_enum, value_delimiter = ',')]
+        fail_on: Vec<FailOn>,
+        /// Exit with status 2 when any hunk scores at least this much.
+        #[arg(long, value_name = "N")]
+        fail_on_score: Option<u32>,
     },
 }
+
+/// Exit status when `--fail-on` conditions hold (1 stays "error").
+const EXIT_CONDITIONS: u8 = 2;
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Format {
@@ -99,7 +113,8 @@ enum Format {
 
 fn main() -> ExitCode {
     match run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::from(EXIT_CONDITIONS),
         Err(e) => {
             eprintln!("error: {e:#}");
             ExitCode::FAILURE
@@ -107,7 +122,8 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+/// `Ok(false)` means the command ran but a `--fail-on` condition holds.
+fn run(cli: Cli) -> Result<bool> {
     match cli.command {
         Cmd::Analyze {
             range,
@@ -127,7 +143,7 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 print!("{}", render(&range, &analysis));
             }
-            Ok(())
+            Ok(true)
         }
         Cmd::Review {
             range,
@@ -148,7 +164,7 @@ fn run(cli: Cli) -> Result<()> {
                 assumptions: assumptions.as_deref(),
                 no_reuse,
             };
-            review(&src, share, port, no_open)
+            review(&src, share, port, no_open).map(|()| true)
         }
         Cmd::Export {
             range,
@@ -159,6 +175,9 @@ fn run(cli: Cli) -> Result<()> {
             no_reuse,
             format,
             out,
+            post,
+            fail_on,
+            fail_on_score,
         } => {
             let src = Source {
                 repo: &repo,
@@ -168,7 +187,12 @@ fn run(cli: Cli) -> Result<()> {
                 assumptions: assumptions.as_deref(),
                 no_reuse,
             };
-            export(&src, format, out.as_deref())
+            let gate = Gate {
+                post,
+                fail_on: &fail_on,
+                fail_on_score,
+            };
+            export(&src, format, out.as_deref(), &gate)
         }
     }
 }
@@ -208,7 +232,17 @@ fn print_share_urls(local_url: &str, probe: &str) {
     }
 }
 
-fn export(src: &Source, format: Format, out: Option<&Path>) -> Result<()> {
+/// What `export` does with the record beyond printing it.
+struct Gate<'a> {
+    post: bool,
+    fail_on: &'a [FailOn],
+    fail_on_score: Option<u32>,
+}
+
+fn export(src: &Source, format: Format, out: Option<&Path>, gate: &Gate) -> Result<bool> {
+    if gate.post && src.pr.is_none() {
+        anyhow::bail!("--post needs --pr");
+    }
     let (repo, analysis) = session_cli::load(src)?;
     let path = session_cli::session_path(&repo, &analysis);
     if !path.exists() {
@@ -230,12 +264,18 @@ fn export(src: &Source, format: Format, out: Option<&Path>) -> Result<()> {
         Format::Json => conformance::render_json(&rec)?,
     };
     match out {
-        Some(p) => std::fs::write(p, text).with_context(|| format!("writing {}", p.display())),
-        None => {
-            print!("{text}");
-            Ok(())
-        }
+        Some(p) => std::fs::write(p, text).with_context(|| format!("writing {}", p.display()))?,
+        None => print!("{text}"),
     }
+    if let (true, Some(n)) = (gate.post, src.pr) {
+        session_cli::post_pr_comment(&repo, n, &conformance::render_markdown(&rec))?;
+        eprintln!("posted the conformance record on PR #{n}");
+    }
+    let failed = conformance::failures(&analysis, &rec, gate.fail_on, gate.fail_on_score);
+    for f in &failed {
+        eprintln!("fail: {f}");
+    }
+    Ok(failed.is_empty())
 }
 
 fn kind_name(h: &Hunk) -> &'static str {
