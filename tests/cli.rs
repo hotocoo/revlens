@@ -380,8 +380,11 @@ fn llm_intent_uses_the_configured_command_once() -> Result<()> {
         "Payments include a fee"
     );
     assert_eq!(v["criteria"][0]["criterion"]["source_line"], 3);
-    let again = run(&args, d)?;
-    assert_eq!(again.stdout, out.stdout);
+    let again: serde_json::Value = serde_json::from_slice(&run(&args, d)?.stdout)?;
+    assert_eq!(
+        again["criteria"], v["criteria"],
+        "generated_at may differ, criteria may not"
+    );
     assert_eq!(std::fs::read_to_string(&calls)?.lines().count(), 1);
 
     let none = run(&["export", &range(&f), "--llm-intent"], d)?;

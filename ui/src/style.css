@@ -175,6 +175,8 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); tex
 .comment { white-space: pre-wrap; word-break: break-word; }
 .comment.reply { padding-left: 12px; border-left: 2px solid var(--border); }
 .thread-actions { display: flex; gap: 8px; align-items: center; }
+.line-pick { display: flex; gap: 10px; align-items: center; }
+.line-pick input { width: 5.5em; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; }
 .composer { display: flex; gap: 6px; align-items: flex-end; }
 .composer label { flex: 1; display: block; }
 .composer textarea { width: 100%; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; resize: vertical; }

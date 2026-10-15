@@ -36,13 +36,16 @@ export function Threads({
   hunk,
   threads,
   line,
-  onClearLine,
+  lines,
+  onLine,
 }: {
   session: Session;
   hunk: string;
   threads: Thread[];
   line: number | null;
-  onClearLine: () => void;
+  /** First and last new-side line a thread may point at. */
+  lines: [number, number];
+  onLine: (line: number | null) => void;
 }) {
   const [showResolved, setShowResolved] = useState(false);
   const resolvedCount = threads.filter((t) => t.resolvedBy).length;
@@ -75,12 +78,25 @@ export function Threads({
         </button>
       )}
       <div class="new-thread">
-        {line != null && (
-          <p class="muted">
-            New comment on line {line}.{" "}
-            <button type="button" class="link" onClick={onClearLine}>Comment on the whole hunk</button>
-          </p>
-        )}
+        <p class="muted line-pick">
+          <label>
+            Line{" "}
+            <input
+              type="number"
+              min={lines[0]}
+              max={lines[1]}
+              value={line ?? ""}
+              placeholder="all"
+              onInput={(e) => {
+                const n = e.currentTarget.valueAsNumber;
+                onLine(Number.isInteger(n) && n >= lines[0] && n <= lines[1] ? n : null);
+              }}
+            />
+          </label>
+          {line != null && (
+            <button type="button" class="link" onClick={() => onLine(null)}>Comment on the whole hunk</button>
+          )}
+        </p>
         <Composer
           label={line != null ? `Comment on line ${line}` : "Comment on this hunk"}
           onSend={(text) => addComment(s, hunk, line, null, text)}

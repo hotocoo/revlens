@@ -172,7 +172,14 @@ export function HunkCard({ hunk: h, analysis, session: s, peers, crits, selected
         </div>
       )}
       {(open || threads.length > 0) && (
-        <Threads session={s} hunk={h.id} threads={threads} line={line} onClearLine={() => setLine(null)} />
+        <Threads
+          session={s}
+          hunk={h.id}
+          threads={threads}
+          line={line}
+          lines={[h.new_start, h.new_start + Math.max(h.new_len, 1) - 1]}
+          onLine={setLine}
+        />
       )}
     </article>
   );
