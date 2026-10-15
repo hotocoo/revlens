@@ -1,0 +1,17 @@
+name: lens-selftest
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  lens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: lens
+        uses: hotocoo/revlens@v0.2.1
+        with:
+          version: v0.2.1
+      - run: test -s "${{ steps.lens.outputs.record }}" && grep -q "Lens conformance record" "${{ steps.lens.outputs.record }}"
