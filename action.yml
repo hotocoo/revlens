@@ -1,38 +1,38 @@
 name: Lens conformance record
-description: Check a pull request against its acceptance criteria with revlens, post the record, and fail on chosen conditions.
+description: "Check a pull request against its acceptance criteria with revlens, post the record, and fail on chosen conditions."
 branding:
   icon: check-square
   color: blue
 
 inputs:
   version:
-    description: Release tag to install (for example v0.2.0), or "latest".
+    description: "Release tag to install (for example v0.2.0), or \"latest\"."
     default: latest
   pr:
-    description: Pull request number. Defaults to the PR that triggered the workflow.
+    description: "Pull request number. Defaults to the PR that triggered the workflow."
     default: ""
   intent:
-    description: Intent file to use instead of the PR body's acceptance criteria.
+    description: "Intent file to use instead of the PR body's acceptance criteria."
     default: ""
   post:
-    description: Post the record as a PR comment (updated in place on reruns). Needs `pull-requests: write`.
+    description: "Post the record as a PR comment (updated in place on reruns). Needs `pull-requests: write`."
     default: "true"
   fail-on:
-    description: Comma-separated conditions that fail the job (missing-work, scope-creep, unreviewed, reuse-miss, not-met, open).
+    description: "Comma-separated conditions that fail the job (missing-work, scope-creep, unreviewed, reuse-miss, not-met, open, open-threads)."
     default: ""
   fail-on-score:
-    description: Fail when any hunk scores at least this much.
+    description: "Fail when any hunk scores at least this much."
     default: ""
   args:
-    description: Extra arguments passed to `revlens export` (for example --no-reuse).
+    description: "Extra arguments passed to `revlens export` (for example --no-reuse)."
     default: ""
   token:
-    description: Token for `gh` (release download, PR metadata, comment).
+    description: "Token for `gh` (release download, PR metadata, comment)."
     default: ${{ github.token }}
 
 outputs:
   record:
-    description: Path of the Markdown conformance record.
+    description: "Path of the Markdown conformance record."
     value: ${{ steps.export.outputs.record }}
 
 runs:
