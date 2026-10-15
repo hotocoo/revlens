@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0          # merge base must be reachable
-      - uses: hotocoo/revlens@v0.2.0
+      - uses: hotocoo/revlens@v0.2.1
         with:
           fail-on: missing-work,reuse-miss
           fail-on-score: 60

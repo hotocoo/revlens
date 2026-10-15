@@ -1,6 +1,6 @@
 [package]
 name = "revlens"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Intent-aware, risk-ranked, live multi-reviewer code review for git changes"

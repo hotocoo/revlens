@@ -2,6 +2,10 @@
 
 All notable changes are listed here. The format follows Keep a Changelog and the project follows semantic versioning.
 
+## 0.2.1
+
+- Fix the GitHub Action: `action.yml` was not valid YAML, so `uses: hotocoo/revlens@v0.2.0` failed to load. Use `@v0.2.1`.
+
 ## 0.2.0
 
 - `revlens export --post` comments the record on the PR (`--pr`) and edits that comment on reruns.

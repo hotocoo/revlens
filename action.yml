@@ -6,7 +6,7 @@ branding:
 
 inputs:
   version:
-    description: "Release tag to install (for example v0.2.0), or \"latest\"."
+    description: "Release tag to install (for example v0.2.1), or \"latest\"."
     default: latest
   pr:
     description: "Pull request number. Defaults to the PR that triggered the workflow."
