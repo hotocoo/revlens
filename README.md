@@ -95,8 +95,8 @@ Pass the same range and the same `--intent`, `--pr`, or `--assumptions` to `expo
 | Command | Flags |
 | --- | --- |
 | `analyze <RANGE>` | `--repo <PATH>`, `--json`, `--no-reuse`, `--no-cache` |
-| `review [RANGE]` | `--repo`, `--intent <FILE>`, `--pr <N>`, `--assumptions <FILE>`, `--share`, `--port <N>`, `--no-open`, `--no-reuse`, `--no-cache` |
-| `export [RANGE]` | `--repo`, `--intent`, `--pr`, `--assumptions`, `--no-reuse`, `--no-cache`, `--format md\|json`, `--out <FILE>`, `--post`, `--fail-on <LIST>`, `--fail-on-score <N>` |
+| `review [RANGE]` | `--repo`, `--intent <FILE>`, `--pr <N>`, `--assumptions <FILE>`, `--share`, `--port <N>`, `--no-open`, `--no-reuse`, `--no-cache`, `--llm-intent` |
+| `export [RANGE]` | `--repo`, `--intent`, `--pr`, `--assumptions`, `--no-reuse`, `--no-cache`, `--llm-intent`, `--format md\|json`, `--out <FILE>`, `--post`, `--fail-on <LIST>`, `--fail-on-score <N>` |
 
 `RANGE` is optional with `--pr`. With both `--pr` and `--intent`, the range comes from the PR and the criteria from the file. `--post` needs `--pr`.
 
@@ -150,6 +150,22 @@ Given an IP that has been rate limited
 When the window passes
 Then the next login attempt is evaluated normally
 ```
+
+### Criteria from a model (opt-in)
+
+For tickets written as prose, `--llm-intent` asks a model to extract the criteria. Lens has no API client and stores no keys: it runs the command you configure, writes `intent.llm_prompt` and the document to its stdin, and expects a JSON array of strings on stdout.
+
+```toml
+# .revlens/config.toml
+[intent]
+llm_command = ["claude", "-p"]   # any command that reads stdin, e.g. ["llm", "-m", "some-model"]
+```
+
+```sh
+revlens review main..my-branch --intent ticket.md --llm-intent
+```
+
+The first answer for a given document, command and prompt is cached in `.revlens/cache/` and reused by every later `review` and `export`, so both see the same criteria (sessions are keyed on them). Delete the cache entry to ask again. The reply is checked: at most `llm_max_criteria` criteria of at most `llm_max_chars` characters each, and the command is killed after `llm_timeout_secs`.
 
 In the UI, each criterion has a **Map hunks** button. Click it to enter map mode: a bar at the bottom of the window names the criterion, and every hunk shows a **Map to <id>** toggle. Click the toggles for the hunks that implement the criterion, then **Done** (or click the criterion's button again). Each criterion is also marked Open, Met, Not met or N/A.
 
@@ -231,7 +247,6 @@ Not in 0.1.0:
 1. MCP `record_assumption` tool for agents
 2. Re-anchoring reviews after a force-push
 3. Comment threads and cursors
-7. Opt-in LLM intent parsing
 
 ## Contributing
 

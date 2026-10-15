@@ -11,6 +11,7 @@ All notable changes are listed here. The format follows Keep a Changelog and the
 - Near-duplicate reuse misses by AST shingle similarity (`limits.near_duplicate_percent`, default 75).
 - Parsing runs on all cores (`limits.threads`); analyses are cached in `.revlens/cache/` (`--no-cache`, `limits.cache_enabled`).
 - Rust struct and enum signatures ignore comments; `/tests.rs` counts as a test path.
+- `--llm-intent`: criteria extracted by a configured command (`intent.llm_command`), cached so `review` and `export` agree.
 - `--intent` and `--pr` can be combined: range from the PR, criteria from the file.
 
 ## 0.1.0

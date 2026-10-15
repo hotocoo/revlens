@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::git::{Repo, parse_range};
 use crate::live::session_id;
 use crate::model::Analysis;
-use crate::{analyze, intent};
+use crate::{analyze, intent, llm_intent};
 
 /// Where the review comes from. `range` may be omitted when `pr` is given.
 pub struct Source<'a> {
@@ -25,6 +25,8 @@ pub struct Source<'a> {
     pub no_reuse: bool,
     /// Recompute instead of reading the analysis cache (`--no-cache`).
     pub no_cache: bool,
+    /// Extract criteria with `intent.llm_command` instead of the list parser (`--llm-intent`).
+    pub llm_intent: bool,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -60,7 +62,14 @@ pub fn load(src: &Source) -> Result<(Repo, Analysis)> {
         (Some(path), _) => {
             let doc = std::fs::read_to_string(path)
                 .with_context(|| format!("reading intent file {}", path.display()))?;
-            intent::parse_criteria(&doc, &cfg)
+            if src.llm_intent {
+                llm_intent::criteria(&doc, &cfg.intent, repo.root())?
+            } else {
+                intent::parse_criteria(&doc, &cfg)
+            }
+        }
+        (None, Some(p)) if src.llm_intent => {
+            llm_intent::criteria(&p.body, &cfg.intent, repo.root())?
         }
         (None, Some(p)) => {
             let c = intent::intent_from_pr_body(&p.body, &cfg);
@@ -72,6 +81,7 @@ pub fn load(src: &Source) -> Result<(Repo, Analysis)> {
             }
             c
         }
+        (None, None) if src.llm_intent => bail!("--llm-intent needs --intent or --pr"),
         (None, None) => Vec::new(),
     };
     let default_assumptions = repo.root().join(".revlens/assumptions.jsonl");

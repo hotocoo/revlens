@@ -12,6 +12,7 @@ pub mod hash;
 pub mod intent;
 pub mod lang;
 pub mod live;
+pub mod llm_intent;
 pub mod model;
 pub mod par;
 pub mod patch;

@@ -344,3 +344,48 @@ fn analysis_is_cached_per_commits_and_config() -> Result<()> {
     assert_eq!(entries(), 0);
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn llm_intent_uses_the_configured_command_once() -> Result<()> {
+    let f = repo()?;
+    let d = f.dir.path();
+    std::fs::write(
+        d.join("ticket.md"),
+        "# Ticket\n\nPayments must include a fee.\n",
+    )?;
+    let calls = d.join("calls");
+    std::fs::create_dir_all(d.join(".revlens"))?;
+    std::fs::write(
+        d.join(".revlens/config.toml"),
+        format!(
+            "[intent]\nllm_command = [\"sh\", \"-c\", \"cat >/dev/null; echo x >> {}; echo '[\\\"Payments include a fee\\\"]'\"]\n",
+            calls.display()
+        ),
+    )?;
+    let args = [
+        "export",
+        range(&f).leak(),
+        "--intent",
+        "ticket.md",
+        "--llm-intent",
+        "--format",
+        "json",
+    ];
+    let out = run(&args, d)?;
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    assert_eq!(
+        v["criteria"][0]["criterion"]["text"],
+        "Payments include a fee"
+    );
+    assert_eq!(v["criteria"][0]["criterion"]["source_line"], 3);
+    let again = run(&args, d)?;
+    assert_eq!(again.stdout, out.stdout);
+    assert_eq!(std::fs::read_to_string(&calls)?.lines().count(), 1);
+
+    let none = run(&["export", &range(&f), "--llm-intent"], d)?;
+    assert_eq!(none.status.code(), Some(1));
+    assert!(text(&none.stderr).contains("--llm-intent needs --intent or --pr"));
+    Ok(())
+}

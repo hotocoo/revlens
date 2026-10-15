@@ -65,6 +65,9 @@ enum Cmd {
         /// Recompute the analysis instead of reading `.revlens/cache/`.
         #[arg(long)]
         no_cache: bool,
+        /// Extract criteria from the intent or PR body with `intent.llm_command`.
+        #[arg(long)]
+        llm_intent: bool,
         /// Listen on all interfaces so teammates can join.
         #[arg(long)]
         share: bool,
@@ -94,6 +97,9 @@ enum Cmd {
         /// Recompute the analysis instead of reading `.revlens/cache/`.
         #[arg(long)]
         no_cache: bool,
+        /// Extract criteria from the intent or PR body with `intent.llm_command`.
+        #[arg(long)]
+        llm_intent: bool,
         #[arg(long, value_enum, default_value = "md")]
         format: Format,
         /// Write to this file instead of stdout.
@@ -164,6 +170,7 @@ fn run(cli: Cli) -> Result<bool> {
             assumptions,
             no_reuse,
             no_cache,
+            llm_intent,
             share,
             port,
             no_open,
@@ -176,6 +183,7 @@ fn run(cli: Cli) -> Result<bool> {
                 assumptions: assumptions.as_deref(),
                 no_reuse,
                 no_cache,
+                llm_intent,
             };
             review(&src, share, port, no_open).map(|()| true)
         }
@@ -187,6 +195,7 @@ fn run(cli: Cli) -> Result<bool> {
             assumptions,
             no_reuse,
             no_cache,
+            llm_intent,
             format,
             out,
             post,
@@ -201,6 +210,7 @@ fn run(cli: Cli) -> Result<bool> {
                 assumptions: assumptions.as_deref(),
                 no_reuse,
                 no_cache,
+                llm_intent,
             };
             let gate = Gate {
                 post,

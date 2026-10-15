@@ -106,3 +106,15 @@ lan_probe = "192.0.2.1:9"
 headings = ["acceptance", "criteria", "requirements", "definition of done", "AC"]
 # With --pr, take criteria only from sections under one of `headings` (template checklists are ignored).
 pr_require_heading = true
+# Command for --llm-intent, as an argument list. It receives llm_prompt and the intent document
+# on stdin and must print a JSON array of criterion strings; for example ["claude", "-p"].
+# Empty: --llm-intent is an error. Lens stores no API keys; the command handles its own.
+llm_command = []
+# Instructions sent before the document.
+llm_prompt = "Extract the acceptance criteria from the change request below. Each criterion must be one testable statement of required behavior, in the document's own terms. Do not invent requirements. Reply with only a JSON array of strings."
+# Seconds before the command is killed.
+llm_timeout_secs = 120
+# Most criteria accepted from the command.
+llm_max_criteria = 50
+# Longest criterion accepted, in characters.
+llm_max_chars = 500

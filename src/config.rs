@@ -26,7 +26,21 @@ pub struct Intent {
     /// For `--pr`, take criteria only from sections under one of `headings`; a PR template
     /// checklist is not acceptance criteria.
     pub pr_require_heading: bool,
+    /// Command (argv) for `--llm-intent`: gets `llm_prompt` and the document on stdin and prints
+    /// a JSON array of criterion strings. Empty: `--llm-intent` is an error.
+    pub llm_command: Vec<String>,
+    /// Instructions sent before the document.
+    pub llm_prompt: String,
+    /// Seconds before the command is killed.
+    pub llm_timeout_secs: u64,
+    /// Most criteria accepted from the command.
+    pub llm_max_criteria: usize,
+    /// Longest criterion accepted from the command, in characters.
+    pub llm_max_chars: usize,
 }
+
+/// Default `intent.llm_prompt`.
+pub const LLM_PROMPT: &str = "Extract the acceptance criteria from the change request below. Each criterion must be one testable statement of required behavior, in the document's own terms. Do not invent requirements. Reply with only a JSON array of strings.";
 
 impl Default for Intent {
     fn default() -> Self {
@@ -39,6 +53,11 @@ impl Default for Intent {
                 "AC",
             ]),
             pr_require_heading: true,
+            llm_command: Vec::new(),
+            llm_prompt: LLM_PROMPT.into(),
+            llm_timeout_secs: 120,
+            llm_max_criteria: 50,
+            llm_max_chars: 500,
         }
     }
 }
