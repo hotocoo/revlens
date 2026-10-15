@@ -224,6 +224,26 @@ pub struct SessionState {
     /// hunk id -> user who marked it reviewed.
     pub reviewed: BTreeMap<HunkId, String>,
     pub claims: BTreeMap<HunkId, Claim>,
+    /// Comment id -> comment. Replies point at their thread's root through `parent`.
+    #[serde(default)]
+    pub comments: BTreeMap<String, Comment>,
+    /// Root comment id -> user who resolved the thread.
+    #[serde(default)]
+    pub resolved: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Comment {
+    pub hunk: HunkId,
+    /// New-side line the thread is on; `None` for the hunk as a whole.
+    #[serde(default)]
+    pub line: Option<u32>,
+    /// Root comment id for a reply.
+    #[serde(default)]
+    pub parent: Option<String>,
+    pub user: String,
+    pub text: String,
+    pub at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -239,6 +259,19 @@ pub struct ConformanceRecord {
     pub missing_work: Vec<CritId>,
     pub unreviewed: Vec<HunkRef>,
     pub reuse_misses: Vec<HunkRef>,
+    /// Comment threads nobody resolved (added in 0.2.0; absent in older records).
+    #[serde(default)]
+    pub open_threads: Vec<ThreadRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThreadRef {
+    pub id: String,
+    pub path: String,
+    pub line: u32,
+    pub user: String,
+    pub text: String,
+    pub replies: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

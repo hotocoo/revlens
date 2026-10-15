@@ -176,6 +176,21 @@ pub fn migrate(
             state.claims.insert(n, c.clone());
         }
     }
+    // Threads follow their hunk; a thread on a changed hunk is dropped with it.
+    for (id, c) in &old.comments {
+        touched.push(&c.hunk);
+        if let Some(n) = remap(&c.hunk) {
+            let mut c2 = c.clone();
+            c2.hunk = n;
+            state.comments.insert(id.clone(), c2);
+        }
+    }
+    state.resolved = old
+        .resolved
+        .iter()
+        .filter(|(id, _)| state.comments.contains_key(*id))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     state.mappings.sort();
     touched.sort_unstable();
     touched.dedup();
@@ -289,6 +304,7 @@ mod tests {
                     at_ms: 1,
                 },
             )]),
+            ..SessionState::default()
         };
         // After a rebase the fee hunk moved down; the other one changed.
         let after = analysis(vec![

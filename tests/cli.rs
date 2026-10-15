@@ -74,7 +74,7 @@ fn write_session(f: &Fixture, intent: &str) -> Result<()> {
             by: "ann".into(),
         }],
         reviewed: BTreeMap::from([(hunk, "ann".to_string())]),
-        claims: BTreeMap::new(),
+        ..SessionState::default()
     };
     let doc = Doc::new();
     apply_state(&doc, &state);

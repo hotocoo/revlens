@@ -14,6 +14,7 @@ All notable changes are listed here. The format follows Keep a Changelog and the
 - `--llm-intent`: criteria extracted by a configured command (`intent.llm_command`), cached so `review` and `export` agree.
 - `revlens mcp`: MCP stdio server with a validated `record_assumption` tool for coding agents.
 - Re-anchoring: after a force-push or rebase, a review carries over to the new commits for every hunk whose content is unchanged.
+- Comment threads on hunks and lines (reply, resolve), live line cursors, `open_threads` in the record and `--fail-on open-threads`.
 - `--intent` and `--pr` can be combined: range from the PR, criteria from the file.
 
 ## 0.1.0

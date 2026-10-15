@@ -36,4 +36,15 @@ export type Analysis = {
 };
 export type Status = "Open" | "Met" | "NotMet" | "NotApplicable";
 export type Claim = { user: string; at_ms: number };
-export type Peer = { clientId: number; name: string; color: string; focus: string | null };
+export type Cursor = { hunk: string; line: number };
+export type Peer = { clientId: number; name: string; color: string; focus: string | null; cursor: Cursor | null };
+/** Mirrors `Comment` in src/model.rs. */
+export type Comment = {
+  hunk: string;
+  line: number | null;
+  parent: string | null;
+  user: string;
+  text: string;
+  at_ms: number;
+};
+export type Thread = { id: string; root: Comment; replies: [string, Comment][]; resolvedBy: string | null };

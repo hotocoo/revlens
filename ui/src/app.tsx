@@ -11,7 +11,7 @@ function useRevision(s: Session): number {
   const [rev, setRev] = useState(0);
   useEffect(() => {
     const bump = () => setRev((r) => r + 1);
-    const maps = [s.status, s.mappings, s.reviewed, s.claims];
+    const maps = [s.status, s.mappings, s.reviewed, s.claims, s.comments, s.resolved];
     maps.forEach((m) => m.observe(bump));
     s.provider.awareness.on("change", bump);
     s.provider.on("status", bump);

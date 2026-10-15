@@ -53,7 +53,7 @@ Or take the range and criteria from a GitHub PR. Criteria come from list items u
 revlens review --pr 123
 ```
 
-Two reviewers: the second one opens the same URL, or the first runs with `--share` and sends the printed URL (see below). Each reviewer picks a name; claims, ticks, criterion mappings and presence show up live in every window. Session state is saved under `.revlens/sessions/` and survives a restart.
+Two reviewers: the second one opens the same URL, or the first runs with `--share` and sends the printed URL (see below). Each reviewer picks a name; claims, ticks, criterion mappings, comment threads, presence and each reviewer's line cursor show up live in every window. Click a diff line to comment on it, or comment on the whole hunk; threads take replies and can be resolved. Session state is saved under `.revlens/sessions/` and survives a restart.
 
 Post the conformance record to the PR:
 
@@ -64,7 +64,7 @@ revlens export main..my-branch --intent ticket.md --format json --out record.jso
 
 ### In CI
 
-`--fail-on` exits with status 2 (errors exit 1) when any listed condition holds: `missing-work`, `scope-creep`, `unreviewed`, `reuse-miss`, `not-met`, `open`. `--fail-on-score N` fails when any hunk scores N or more. CI has no review session, so `unreviewed` and `open` hold for every change there; use them only after a review.
+`--fail-on` exits with status 2 (errors exit 1) when any listed condition holds: `missing-work`, `scope-creep`, `unreviewed`, `reuse-miss`, `not-met`, `open`, `open-threads`. `--fail-on-score N` fails when any hunk scores N or more. CI has no review session, so `unreviewed` and `open` hold for every change there; use them only after a review.
 
 The repository is also a GitHub Action. It downloads a release binary, posts the record on the PR and writes it to the job summary:
 
@@ -190,7 +190,7 @@ Agents that speak the Model Context Protocol can record assumptions through a to
 
 ## Conformance record
 
-`revlens export` prints Markdown (default) or JSON (`--format json`, schema version 1) with:
+`revlens export` prints Markdown (default) or JSON (`--format json`, schema version 1; fields added since 0.1.0 are optional for readers) with:
 
 | Field | Meaning |
 | --- | --- |
@@ -202,6 +202,7 @@ Agents that speak the Model Context Protocol can record assumptions through a to
 | `missing_work` | Criteria with no hunks, unless marked N/A |
 | `unreviewed` | Hunks nobody marked reviewed |
 | `reuse_misses` | Hunks that duplicate existing code |
+| `open_threads` | Unresolved comment threads: location, author, text, reply count |
 
 ## Live sessions and security
 
@@ -248,12 +249,6 @@ Based on each project's public description; check them for current details.
 | Conformance record | Yes | No | No | No | No | No |
 
 Lens does not replace an AI reviewer: it gives the humans (and the AI's output) a ranked, intent-aware way to read the change. difftastic is a diff viewer and a good one; Lens uses similar parsing but is about review workflow, not display.
-
-## Roadmap
-
-Not in 0.1.0:
-
-3. Comment threads and cursors
 
 ## Contributing
 

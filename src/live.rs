@@ -7,6 +7,11 @@
 //! - `reviewed`: `hunkId` -> user who marked it reviewed
 //! - `claims`:   `hunkId` -> JSON string `{"user":"..","at_ms":123}` (a JSON string, not a nested
 //!   map, so claim and re-claim are plain last-writer-wins key sets; the UI writes the same shape)
+//! - `comments`: comment id -> JSON string of [`Comment`]
+//! - `resolved`: root comment id -> user who resolved the thread
+//!
+//! Awareness state per client: `user` `{name, color}`, `focus` (hunk id or null) and `cursor`
+//! (`{hunk, line}` or null), all set by the UI.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -23,12 +28,14 @@ use yrs::updates::encoder::Encode;
 use yrs::{ClientID, Doc, Map, ReadTxn, StateVector, Transact, Update};
 
 use crate::hash::fnv1a64;
-use crate::model::{Claim, CritStatus, Mapping, SessionState};
+use crate::model::{Claim, Comment, CritStatus, Mapping, SessionState};
 
 const STATUS: &str = "status";
 const MAPPINGS: &str = "mappings";
 const REVIEWED: &str = "reviewed";
 const CLAIMS: &str = "claims";
+const COMMENTS: &str = "comments";
+const RESOLVED: &str = "resolved";
 const OBSERVER_KEY: &str = "lens-live";
 /// Buffered outgoing messages per slow subscriber before it lags (and must resync on reconnect).
 const BROADCAST_CAPACITY: usize = 256;
@@ -176,6 +183,10 @@ impl Session {
             self.doc.get_or_insert_map(REVIEWED),
             self.doc.get_or_insert_map(CLAIMS),
         );
+        let (comments, resolved) = (
+            self.doc.get_or_insert_map(COMMENTS),
+            self.doc.get_or_insert_map(RESOLVED),
+        );
         let txn = self.doc.transact();
         let strings = |m: &yrs::MapRef| -> Vec<(String, String)> {
             m.iter(&txn)
@@ -204,6 +215,13 @@ impl Session {
                 state.claims.insert(hunk, c);
             }
         }
+        // Malformed comments (from a buggy or hostile client) are skipped, not fatal.
+        for (id, json) in strings(&comments) {
+            if let Ok(c) = serde_json::from_str::<Comment>(&json) {
+                state.comments.insert(id, c);
+            }
+        }
+        state.resolved = strings(&resolved).into_iter().collect();
         Ok(state)
     }
 
@@ -262,7 +280,19 @@ pub fn apply_state(doc: &Doc, state: &SessionState) {
         doc.get_or_insert_map(REVIEWED),
         doc.get_or_insert_map(CLAIMS),
     );
+    let (comments, resolved) = (
+        doc.get_or_insert_map(COMMENTS),
+        doc.get_or_insert_map(RESOLVED),
+    );
     let mut txn = doc.transact_mut();
+    for (id, c) in &state.comments {
+        if let Ok(json) = serde_json::to_string(c) {
+            comments.insert(&mut txn, id.as_str(), json);
+        }
+    }
+    for (id, user) in &state.resolved {
+        resolved.insert(&mut txn, id.as_str(), user.as_str());
+    }
     for (crit, s) in &state.status {
         status.insert(&mut txn, crit.as_str(), format!("{s:?}"));
     }
@@ -308,6 +338,18 @@ mod tests {
                     at_ms: 42,
                 },
             )]),
+            comments: BTreeMap::from([(
+                "k1".to_string(),
+                Comment {
+                    hunk: "h_abc".into(),
+                    line: Some(4),
+                    parent: None,
+                    user: "bob".into(),
+                    text: "Why flat?".into(),
+                    at_ms: 7,
+                },
+            )]),
+            resolved: BTreeMap::from([("k1".to_string(), "ann".to_string())]),
         }
     }
 
