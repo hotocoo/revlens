@@ -16,6 +16,17 @@ const LITERAL_KINDS: &[&str] = &[
     "float",
     "regex",
     "concatenated_string",
+    // Rust
+    "string_literal",
+    "raw_string_literal",
+    "char_literal",
+    "integer_literal",
+    "float_literal",
+    // Go
+    "interpreted_string_literal",
+    "rune_literal",
+    "int_literal",
+    "imaginary_literal",
 ];
 
 /// Node kinds treated as renamable identifiers in `shape`.
@@ -27,6 +38,7 @@ const IDENT_KINDS: &[&str] = &[
     "shorthand_property_identifier_pattern",
     "statement_identifier",
     "private_property_identifier",
+    "field_identifier",
 ];
 
 fn is_comment(n: Node) -> bool {
@@ -349,6 +361,29 @@ mod tests {
         assert_ne!(
             f("def f(a):\n    return a + 1\n"),
             f("def f(a):\n    return a * 1\n")
+        );
+    }
+
+    #[test]
+    fn rust_and_go_shape_ignore_renames_and_literals() {
+        let shape_of = |lang: tree_sitter::Language, s: &str| {
+            let mut p = tree_sitter::Parser::new();
+            p.set_language(&lang).expect("lang");
+            shape(p.parse(s, None).expect("parse").root_node(), s.as_bytes()).0
+        };
+        let rs = |s: &str| shape_of(tree_sitter_rust::LANGUAGE.into(), s);
+        assert_eq!(
+            rs("fn f(a: u8) -> u8 { a.x + 1 } // c"),
+            rs("fn g(b: u8) -> u8 { b.y + 9 }")
+        );
+        assert_ne!(
+            rs("fn f(a: u8) -> u8 { a + 1 }"),
+            rs("fn f(a: u8) -> u8 { a * 1 }")
+        );
+        let go = |s: &str| shape_of(tree_sitter_go::LANGUAGE.into(), s);
+        assert_eq!(
+            go("package p\nfunc F(a int) string { return \"x\" }"),
+            go("package p\nfunc G(b int) string { return \"yz\" }")
         );
     }
 

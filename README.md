@@ -108,10 +108,10 @@ Each hunk gets points from rules. Every point has a reason shown next to the hun
 | --- | --- | --- |
 | `public_sig_changed` | 30 | A public function or class changes signature, or is removed |
 | `test_removed` | 30 | A test file is deleted, a test is removed, or assertions drop in a test file |
-| `new_dependency` | 25 | A dependency is added to `package.json`, `pyproject.toml`, `Pipfile` or `requirements*.txt` |
+| `new_dependency` | 25 | A dependency is added to `package.json`, `pyproject.toml`, `Pipfile`, `requirements*.txt`, `Cargo.toml` or `go.mod` (`// indirect` requirements excluded) |
 | `sensitive_area` | 20 | Path or added lines match `auth`, `token`, `secret`, `sql`, `eval(` and similar |
 | `reuse_miss` | 20 | An added function duplicates one that already exists in the base tree |
-| `suppression_added` | 15 | `@ts-ignore`, `as any`, `# type: ignore`, `# noqa`, `eslint-disable` and similar are added (a marker that was already on a removed line of the same hunk does not count) |
+| `suppression_added` | 15 | `@ts-ignore`, `as any`, `# type: ignore`, `# noqa`, `eslint-disable`, `#[allow(`, `//nolint` and similar are added (a marker that was already on a removed line of the same hunk does not count) |
 | `error_handling_weakened` | 15 | `try`/`catch`/`except` is removed, or a swallowing handler is added |
 | `infra_config` | 15 | CI, Docker, Terraform, Makefile and similar config changes |
 | `no_test_touch` | 10 | A source file changes and no changed test file mentions it |
@@ -123,7 +123,7 @@ All weights, patterns and thresholds are configurable, see [Configuration](#conf
 
 Lens detects moved functions (within a file and between files) and whitespace-only changes, using tree-sitter fingerprints of the definitions plus a line-based fallback. A hunk is only a move when every changed line is accounted for; a hunk that also carries edited lines is scored normally. Moved and whitespace-only hunks score 0 and are labelled, for example "moved from httpx/_utils.py:12" ("moved to" on the side that only removes the code), but they are never hidden. A moved function that was also edited is reported as moved and changed, and its inner diff is shown. A renamed function is not a pure move: it is scored like any change, and renaming a public symbol fires `public_sig_changed`. Generated files and lockfiles also score 0 and stay listed. In indentation-sensitive files (Python, YAML, Makefile) whitespace edits are not treated as formatting.
 
-Languages: TypeScript, TSX, Python.
+Languages: TypeScript, TSX, Python, Rust, Go. Rust items are public with a `pub` modifier (trait items and trait-impl methods follow their trait), `#[test]` and `#[cfg(test)]` mark tests, and methods are qualified by their `impl` type. Go names are public when exported (upper case), methods are qualified by receiver type, and `Test`/`Benchmark`/`Fuzz`/`Example` functions are tests.
 
 ## Intent
 
@@ -228,7 +228,6 @@ Not in 0.1.0:
 2. Re-anchoring reviews after a force-push
 3. Comment threads and cursors
 5. Near-duplicate detection, parallel analysis, caching
-6. Rust and Go grammars
 7. Opt-in LLM intent parsing
 
 ## Contributing

@@ -32,6 +32,8 @@ enum Kind {
     Pyproject,
     Pipfile,
     Requirements,
+    Cargo,
+    GoMod,
 }
 
 fn kind_of(path: &str) -> Option<Kind> {
@@ -40,6 +42,8 @@ fn kind_of(path: &str) -> Option<Kind> {
         "package.json" => Some(Kind::PackageJson),
         "pyproject.toml" => Some(Kind::Pyproject),
         "pipfile" => Some(Kind::Pipfile),
+        "cargo.toml" => Some(Kind::Cargo),
+        "go.mod" => Some(Kind::GoMod),
         _ if is_requirements(path) => Some(Kind::Requirements),
         _ => None,
     }
@@ -139,11 +143,15 @@ fn parse(kind: Kind, text: &str, sections: &[String]) -> Result<Names> {
         Kind::Pyproject => pyproject_names(text)?,
         Kind::Pipfile => pipfile_names(text)?,
         Kind::Requirements => requirements_names(text),
+        Kind::Cargo => cargo_names(text)?,
+        Kind::GoMod => go_mod_names(text),
     };
-    let npm = kind == Kind::PackageJson;
+    // npm and Go module paths are compared as written; PyPI and crates.io names fold case and
+    // treat `-` and `_` alike.
+    let exact = matches!(kind, Kind::PackageJson | Kind::GoMod);
     Ok(raw
         .into_iter()
-        .map(|n| (if npm { n.clone() } else { normalize_py(&n) }, n))
+        .map(|n| (if exact { n.clone() } else { normalize_py(&n) }, n))
         .collect())
 }
 
@@ -230,12 +238,75 @@ fn pipfile_names(text: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, `[workspace.dependencies]`
+/// and their `[target.'cfg(..)'.*]` variants.
+fn cargo_names(text: &str) -> Result<Vec<String>> {
+    let doc: toml::Table = toml::from_str(text).context("invalid TOML")?;
+    let tables = |t: &toml::Table| -> Vec<String> {
+        CARGO_SECTIONS
+            .iter()
+            .flat_map(|s| keys(t.get(*s)))
+            .collect()
+    };
+    let mut out = tables(&doc);
+    if let Some(ws) = doc.get("workspace").and_then(toml::Value::as_table) {
+        out.extend(keys(ws.get("dependencies")));
+    }
+    for t in doc
+        .get("target")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(|t| t.values())
+        .filter_map(toml::Value::as_table)
+    {
+        out.extend(tables(t));
+    }
+    Ok(out)
+}
+
+const CARGO_SECTIONS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
+
+/// Module paths of `require` directives; `// indirect` requirements are not chosen by the change.
+fn go_mod_names(text: &str) -> Vec<String> {
+    let mut in_block = false;
+    let mut out = Vec::new();
+    for l in text.lines() {
+        let t = l.trim();
+        if t.starts_with("require (") || t == "require(" {
+            in_block = true;
+        } else if in_block && t.starts_with(')') {
+            in_block = false;
+        } else if let Some(name) = go_require(t, in_block) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// `require example.com/m v1.2.3` (or `example.com/m v1.2.3` inside a block) -> module path.
+fn go_require(t: &str, in_block: bool) -> Option<String> {
+    if t.contains("// indirect") {
+        return None;
+    }
+    let body = match t.strip_prefix("require ") {
+        Some(rest) => rest.trim(),
+        None if in_block => t,
+        None => return None,
+    };
+    let mut parts = body.split_whitespace();
+    let (name, ver) = (parts.next()?, parts.next()?);
+    ver.starts_with('v')
+        .then(|| name.trim_matches('"').to_string())
+}
+
 /// Names newly added by `lines`; a name that is also removed (a version bump) is not new.
 pub fn added(path: &str, lines: &[Line], sections: &[String]) -> Vec<String> {
     let base = path.rsplit('/').next().unwrap_or(path).to_lowercase();
     let seen = match base.as_str() {
         "package.json" => package_json(lines, sections),
         "pyproject.toml" => pyproject(lines),
+        "cargo.toml" => cargo(lines),
+        "go.mod" => go_mod(lines),
         _ if is_requirements(path) => requirements(lines),
         _ => Vec::new(),
     };
@@ -275,6 +346,49 @@ fn requirements(lines: &[Line]) -> Seen {
             };
             Some((l.kind, name))
         })
+        .collect()
+}
+
+/// Header out of view: a `name = "1.2"` or `name = { version|path|git = .. }` line is taken
+/// as a dependency unless a visible header says the section is something else.
+fn cargo(lines: &[Line]) -> Seen {
+    let mut in_dep: Option<bool> = None;
+    let mut out = Vec::new();
+    for l in lines {
+        let t = l.text.trim();
+        if let Some(h) = t.strip_prefix('[') {
+            let h = h.trim_end_matches(']').trim();
+            in_dep = Some(
+                CARGO_SECTIONS
+                    .iter()
+                    .any(|s| h == *s || h.ends_with(&format!(".{s}"))),
+            );
+            continue;
+        }
+        if l.kind == LineKind::Context || in_dep == Some(false) {
+            continue;
+        }
+        let Some((k, v)) = t.split_once('=') else {
+            continue;
+        };
+        let (k, v) = (k.trim().trim_matches('"'), v.trim());
+        let dep_shaped = v.starts_with('"') && looks_like_spec(v.trim_matches('"'))
+            || v.starts_with('{')
+                && ["version", "path", "git", "workspace"]
+                    .iter()
+                    .any(|f| v.contains(f));
+        if !k.is_empty() && !k.contains(' ') && (in_dep == Some(true) || dep_shaped) {
+            out.push((l.kind, normalize_py(k)));
+        }
+    }
+    out
+}
+
+fn go_mod(lines: &[Line]) -> Seen {
+    lines
+        .iter()
+        .filter(|l| l.kind != LineKind::Context)
+        .filter_map(|l| Some((l.kind, go_require(l.text.trim(), true)?)))
         .collect()
 }
 
@@ -583,5 +697,77 @@ mod tests {
     #[test]
     fn other_files_have_no_dependencies() {
         assert!(names("src/a.py", &["+requests>=2"]).is_empty());
+    }
+
+    #[test]
+    fn cargo_manifest_names_cover_every_dependency_table() {
+        let text = r#"
+[package]
+name = "x"
+[dependencies]
+serde = "1"
+Foo_Bar = { version = "2" }
+[dev-dependencies]
+insta = "1"
+[build-dependencies]
+cc = "1"
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+[workspace.dependencies]
+anyhow = "1"
+"#;
+        let n = parse(Kind::Cargo, text, &secs()).expect("toml");
+        assert_eq!(
+            n.keys().collect::<Vec<_>>(),
+            ["anyhow", "cc", "foo-bar", "insta", "libc", "serde"]
+        );
+        assert_eq!(n["foo-bar"], "Foo_Bar");
+        assert!(parse(Kind::Cargo, "[x", &secs()).is_err());
+    }
+
+    #[test]
+    fn go_mod_names_skip_indirect() {
+        let text = "module example.com/m\n\ngo 1.22\n\nrequire github.com/a/b v1.2.0\nrequire (\n\tgolang.org/x/text v0.14.0\n\tgithub.com/c/d v0.1.0 // indirect\n)\n";
+        let n = parse(Kind::GoMod, text, &secs()).expect("go.mod");
+        assert_eq!(
+            n.keys().collect::<Vec<_>>(),
+            ["github.com/a/b", "golang.org/x/text"]
+        );
+    }
+
+    #[test]
+    fn cargo_and_go_mod_line_heuristics() {
+        assert_eq!(
+            names(
+                "Cargo.toml",
+                &[
+                    " [dependencies]",
+                    "+rand = \"0.9\"",
+                    "-serde = \"1.0\"",
+                    "+serde = \"1.1\"",
+                ]
+            ),
+            ["rand"]
+        );
+        assert_eq!(
+            names("Cargo.toml", &[" [package]", "+edition = \"2024\""]),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            names("crates/a/Cargo.toml", &["+tokio = { version = \"1\" }"]),
+            ["tokio"]
+        );
+        assert_eq!(
+            names(
+                "go.mod",
+                &[
+                    " require (",
+                    "+\tgithub.com/x/y v1.0.0",
+                    "+\tgithub.com/z/w v1.0.0 // indirect",
+                    "+go 1.23",
+                ]
+            ),
+            ["github.com/x/y"]
+        );
     }
 }

@@ -20,13 +20,14 @@ size_cap = 10
 # Case-insensitive substrings matched against file paths and added lines.
 sensitive = [
     "auth", "token", "secret", "password", "passwd", "credential", "crypto", "sql",
-    "migration", "eval(", "exec(", "subprocess", "pickle", "dangerouslysetinnerhtml",
+    "migration", "eval(", "exec(", "subprocess", "pickle", "unsafe ", "dangerouslysetinnerhtml",
     "innerhtml", "permission", "session",
 ]
 # Matched against added lines.
 suppressions = [
     "@ts-ignore", "@ts-expect-error", "@ts-nocheck", "as any", "eslint-disable",
     "# type: ignore", "# noqa", "# pragma: no cover", "# pylint: disable",
+    "#[allow(", "//nolint",
 ]
 # Path substrings marking CI, build and infrastructure config.
 infra_paths = [
@@ -36,7 +37,7 @@ infra_paths = [
 # Path substrings marking generated files and lockfiles (score forced to 0).
 generated_paths = [
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "uv.lock",
-    "pipfile.lock", "cargo.lock", ".min.js", ".snap", "/dist/", "/build/", "_pb2.py",
+    "pipfile.lock", "cargo.lock", "go.sum", ".pb.go", ".min.js", ".snap", "/dist/", "/build/", "_pb2.py",
     ".generated.", "/vendor/",
 ]
 # Path substrings marking test files.
@@ -48,11 +49,11 @@ indent_sensitive = [".py", ".pyi", ".yml", ".yaml", "makefile", ".mk"]
 # Name prefixes marking test definitions.
 test_symbols = ["test_", "Test"]
 # Substrings counted per line in test files to detect dropped assertions.
-assertions = ["assert", "expect("]
+assertions = ["assert", "expect(", "t.Error", "t.Fatal"]
 # Keys of package.json blocks that list dependencies.
 dependency_sections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 # Line-leading keywords of error handling blocks; removing them weakens handling.
-error_handling = ["try", "catch", "except"]
+error_handling = ["try", "catch", "except", "if err != nil"]
 # Added handlers that swallow errors (whitespace-insensitive, line-leading).
 weak_handlers = ["except:", "except Exception: pass", "catch {}", "catch (e) {}"]
 

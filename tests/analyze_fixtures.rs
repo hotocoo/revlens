@@ -459,3 +459,46 @@ fn reuse_scan_can_be_disabled_and_skips_minified_files() {
     let a = common::analyze_with(&fx, &cfg).expect("analyze");
     assert!(reuse_signal(&a, "b.py").is_none());
 }
+
+const RS_HELPER: &str = "pub fn helper(x: u32) -> u32 {\n    let mut total = 0;\n    for i in 0..x {\n        total += i;\n    }\n    total\n}\n";
+const RS_KEEP: &str = "pub fn keep() -> u32 {\n    1\n}\n";
+
+#[test]
+fn rust_move_and_public_signature_change() {
+    let a = run(
+        &[("src/a.rs", &format!("{RS_HELPER}\n{RS_KEEP}"))],
+        &[("src/a.rs", RS_KEEP), ("src/b.rs", RS_HELPER)],
+    );
+    all_moved_and_free(&a);
+    assert!(a.symbols.iter().any(|s| s.name == "helper"
+        && matches!(&s.change, Change::Moved { from } if from.path == "src/a.rs")));
+
+    let sig = run(
+        &[("src/lib.rs", RS_KEEP)],
+        &[("src/lib.rs", "pub fn keep(flag: bool) -> u32 {\n    1\n}\n")],
+    );
+    let h = &sig.hunks[0];
+    assert!(has(h, &Rule::PublicSigChanged), "{h:?}");
+}
+
+#[test]
+fn go_new_dependency_and_exported_signature_change() {
+    let base_mod = "module example.com/m\n\ngo 1.22\n";
+    let head_mod = "module example.com/m\n\ngo 1.22\n\nrequire github.com/google/uuid v1.6.0\n";
+    let base_go = "package m\n\nfunc Total(x int) int {\n\treturn x\n}\n";
+    let head_go = "package m\n\nfunc Total(x int, y int) int {\n\treturn x + y\n}\n";
+    let a = run(
+        &[("go.mod", base_mod), ("m.go", base_go)],
+        &[("go.mod", head_mod), ("m.go", head_go)],
+    );
+    let m = in_file(&a, "go.mod");
+    assert!(
+        m.iter().any(|h| h
+            .signals
+            .iter()
+            .any(|s| s.rule == Rule::NewDependency && s.reason.contains("github.com/google/uuid"))),
+        "{m:?}"
+    );
+    let g = in_file(&a, "m.go");
+    assert!(g.iter().any(|h| has(h, &Rule::PublicSigChanged)), "{g:?}");
+}

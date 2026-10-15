@@ -61,6 +61,8 @@ pub enum Lang {
     TypeScript,
     Tsx,
     Python,
+    Rust,
+    Go,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
